@@ -62,8 +62,11 @@ def issue_session(response: Response, staff: Staff) -> None:
         token,
         max_age=settings.session_max_age,
         httponly=True,                      # not readable from JavaScript
-        samesite="lax",
-        secure=settings.is_production,      # https-only once deployed
+        # See Settings.session_samesite. A browser ignores SameSite=None
+        # unless Secure is also set, so the two travel together — otherwise
+        # switching to "none" would appear to work and silently do nothing.
+        samesite=settings.session_samesite,
+        secure=settings.is_production or settings.session_samesite == "none",
         path="/",
     )
 

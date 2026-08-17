@@ -149,6 +149,50 @@ def test_a_local_dsn_is_not_mistaken_for_a_hosted_one(dsn):
 
 def test_the_published_dev_secret_still_cannot_reach_production():
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
-        _settings(database_url=RENDER, environment="production",
-                  secret_key="dev-only-not-for-production",
-                  public_site_url="https://vilaow.com").validate_for_production()
+        _production(secret_key="dev-only-not-for-production").validate_for_production()
+
+
+def test_a_deploy_missing_everything_is_told_everything():
+    """One deploy cycle per missing variable is how the first real deploy went.
+    SECRET_KEY used to raise on its own and short-circuit the rest, so a
+    service missing four values reported one, was fixed, and failed again."""
+    with pytest.raises(RuntimeError) as caught:
+        _production(secret_key="dev-only-not-for-production",
+                    public_site_url="http://localhost:3000",
+                    smtp_user="", smtp_password="",
+                    firebase_bucket="").validate_for_production()
+    message = str(caught.value)
+    for expected in ("SECRET_KEY", "PUBLIC_SITE_URL", "SMTP_USER", "FIREBASE_BUCKET"):
+        assert expected in message, f"{expected} was not reported"
+
+
+# ── the session cookie across two domains ───────────────────────────────────
+def test_the_cookie_is_lax_by_default():
+    """Lax is the right default and the safer one — it is what stops another
+    site acting as a signed-in caller."""
+    assert _settings().session_samesite == "lax"
+
+
+@pytest.mark.parametrize("mode, environment, expect_secure", [
+    ("lax", "production", True),
+    ("none", "production", True),
+    # SameSite=None is ignored by browsers without Secure, so setting one
+    # without the other would look like it worked and quietly do nothing.
+    ("none", "development", True),
+    ("lax", "development", False),
+])
+def test_samesite_none_always_carries_secure(mode, environment, expect_secure):
+    from fastapi import Response
+
+    import app.security as security
+
+    original = security.settings
+    security.settings = _settings(session_samesite=mode, environment=environment)
+    try:
+        response = Response()
+        security.issue_session(response, type("S", (), {"id": 1})())
+        header = response.headers["set-cookie"]
+        assert f"SameSite={mode}" in header
+        assert ("Secure" in header) is expect_secure
+    finally:
+        security.settings = original

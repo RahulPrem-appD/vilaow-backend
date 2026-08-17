@@ -34,6 +34,22 @@ class Settings(BaseSettings):
 
     session_cookie: str = "vilaow_session"
     session_max_age: int = 60 * 60 * 12          # a working day
+
+    # How the session cookie is scoped. "lax" is right and is the default: the
+    # cookie is sent on ordinary navigation but not on a cross-site request,
+    # which is what stops another site acting as a signed-in caller.
+    #
+    # It only works when the site and the API share a registrable domain —
+    # vilaow.com and api.vilaow.com. Deployed as valow-mono.vercel.app talking
+    # to vilaow-backend.onrender.com they are *different* domains, so a browser
+    # stores the cookie at login and then refuses to send it anywhere: sign-in
+    # appears to succeed and every request afterwards is a 401.
+    #
+    # "none" makes it work across domains, at a cost worth knowing: the cookie
+    # becomes a third-party cookie, Safari's tracking prevention drops it
+    # outright, and Chrome is phasing them out. Use it to get moving, not to
+    # finish. The real fix is one domain with two subdomains.
+    session_samesite: str = "lax"
     agreement_ttl_days: int = 30                  # how long a signing link lives
     terms_version: str = "2026-01"                # his eight clauses, as published
 
@@ -115,12 +131,6 @@ class Settings(BaseSettings):
         return any(h in host for h in _HOSTED_DATABASE_HOSTS)
 
     def validate_for_production(self) -> None:
-        if self.is_production and self.secret_key == "dev-only-not-for-production":
-            raise RuntimeError(
-                "SECRET_KEY is unset in production. Refusing to start: the default "
-                "would sign session cookies with a value published in the repo."
-            )
-
         # A development run pointed at the production database is not a
         # theoretical mistake; this .env shipped that way. Everything a local
         # run does — issuing agreements, publishing profiles, deleting files —
@@ -165,6 +175,16 @@ class Settings(BaseSettings):
         # who never receives their link.
         missing: list[str] = []
 
+        # Collected with the rest rather than raised on its own. It used to
+        # short-circuit, so a deploy missing four values reported one, was
+        # fixed, and failed again on the next — a cycle per variable.
+        if self.secret_key == "dev-only-not-for-production":
+            missing.append(
+                "SECRET_KEY is unset — the default is published in this repo, so "
+                "session cookies would be signed with a value anyone can read. "
+                "Generate one with: python3 -c \"import secrets; "
+                "print(secrets.token_urlsafe(48))\""
+            )
         if self.site_url_is_local:
             missing.append(
                 f"PUBLIC_SITE_URL is {self.public_site_url!r} — every signing and "
