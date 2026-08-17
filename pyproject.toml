@@ -1,0 +1,31 @@
+[project]
+name = "vilaow-api"
+version = "0.1.0"
+description = "Vilaow — API for the directory of vetted Greek property professionals"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.19.1",
+    "bcrypt>=5.0.0",
+    # For pydantic's EmailStr. The address a professional types while
+    # signing replaces the one on their record and is where the
+    # confirmation code goes, so it has to be an address we can write to.
+    "email-validator>=2.2.0",
+    "fastapi>=0.141.1",
+    "itsdangerous>=2.2.0",
+    "jinja2>=3.1.6",
+    "openpyxl>=3.1.5",
+    "psycopg[binary]>=3.3.4",
+    "google-cloud-storage>=2.18.0",
+    "pydantic-settings>=2.15.0",
+    "python-multipart>=0.0.32",
+    "reportlab>=4.2",
+    "sqlalchemy>=2.0.51",
+    "uvicorn[standard]>=0.52.1",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]

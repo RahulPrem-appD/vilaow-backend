@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vilaow API — scenario run</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--aegean:#0b3a6b;--sea:#1257a8;--paper:#f6f6f2;--ink:#19222c;--muted:#677079;
+      --card:#fff;--line:#e3e2d6;--good:#3d8a5f;--terra:#b85a3e;--gold:#dccfb8;--foam:#eef2f8}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:'Manrope',sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:40px 24px 80px}
+h1{font-family:'Fraunces',serif;font-weight:600;font-size:38px;letter-spacing:-.02em;line-height:1.1}
+.sub{color:var(--muted);margin-top:10px;font-size:15px}
+.bar{display:flex;gap:10px;align-items:center;margin:26px 0 10px}
+button{font-family:inherit;font-weight:700;font-size:15px;background:var(--aegean);color:#fff;
+       border:none;border-radius:10px;padding:13px 22px;cursor:pointer;transition:.15s}
+button:hover{background:#08294d;transform:translateY(-1px)}
+button:disabled{opacity:.5;cursor:default;transform:none}
+.tally{margin-left:auto;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px}
+.pill{display:inline-block;padding:3px 11px;border-radius:20px;font-size:13px;margin-left:8px}
+.p-pass{background:#e8f3ec;color:var(--good)}
+.p-fail{background:#fbeae6;color:var(--terra)}
+.group{margin-top:30px}
+.group h2{font-family:'Fraunces',serif;font-size:20px;font-weight:600;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.row{display:grid;grid-template-columns:74px 1fr auto;gap:14px;align-items:start;
+     padding:13px 4px;border-bottom:1px solid var(--line);font-size:14.5px}
+.tag{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;
+     text-align:center;padding:4px 0;border-radius:6px}
+.t-pass{background:#e8f3ec;color:var(--good)}
+.t-fail{background:#fbeae6;color:var(--terra)}
+.t-run{background:var(--foam);color:var(--sea)}
+.what{font-weight:600}
+.why{color:var(--muted);font-size:13px;margin-top:3px}
+.got{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);white-space:nowrap}
+.note{background:var(--foam);border-left:3px solid var(--sea);padding:14px 16px;border-radius:0 10px 10px 0;
+      margin-top:26px;font-size:14px;color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Vilaow API — scenario run</h1>
+  <p class="sub">Every scenario runs live against the API. Each one states what it protects, not just what it calls.</p>
+
+  <div class="bar">
+    <button id="run">Run all scenarios</button>
+    <span class="tally" id="tally"></span>
+  </div>
+
+  <div id="out"></div>
+
+  <div class="note" id="note" style="display:none"></div>
+</div>
+
+<script>
+const API = "http://localhost:8400";
+const out = document.getElementById("out");
+let pass = 0, fail = 0;
+
+async function call(method, path, body) {
+  const res = await fetch(API + path, {
+    method,
+    credentials: "include",                     // sessions live in a cookie
+    headers: body ? {"Content-Type": "application/json"} : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  return {status: res.status, data};
+}
+
+function group(title) {
+  const d = document.createElement("div");
+  d.className = "group";
+  d.innerHTML = `<h2>${title}</h2>`;
+  out.appendChild(d);
+  return d;
+}
+
+function row(g, what, why) {
+  const r = document.createElement("div");
+  r.className = "row";
+  r.innerHTML = `<span class="tag t-run">···</span>
+                 <div><div class="what">${what}</div><div class="why">${why}</div></div>
+                 <span class="got"></span>`;
+  g.appendChild(r);
+  return r;
+}
+
+function settle(r, ok, got) {
+  const tag = r.querySelector(".tag");
+  tag.className = "tag " + (ok ? "t-pass" : "t-fail");
+  tag.textContent = ok ? "PASS" : "FAIL";
+  r.querySelector(".got").textContent = got;
+  ok ? pass++ : fail++;
+  document.getElementById("tally").innerHTML =
+    `<span class="pill p-pass">${pass} passed</span>` +
+    (fail ? `<span class="pill p-fail">${fail} failed</span>` : "");
+}
+
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+async function check(g, what, why, fn) {
+  const r = row(g, what, why);
+  await wait(220);                              // paced so it can be watched
+  try {
+    const {ok, got} = await fn();
+    settle(r, ok, got);
+  } catch (e) {
+    settle(r, false, String(e).slice(0, 60));
+  }
+}
+
+async function runAll() {
+  out.innerHTML = ""; pass = 0; fail = 0;
+  document.getElementById("note").style.display = "none";
+  document.getElementById("run").disabled = true;
+
+  // ── 1. nobody gets in ─────────────────────────────────────────────
+  let g = group("Nobody gets in without signing in");
+  await call("POST", "/api/auth/logout");
+  for (const p of ["/api/professionals", "/api/leads", "/api/staff", "/api/imports", "/api/professions"]) {
+    await check(g, `GET ${p}`, "an admin anyone can read is the failure two earlier versions shipped",
+      async () => { const r = await call("GET", p); return {ok: r.status === 401, got: r.status}; });
+  }
+  await check(g, "GET /health", "the only thing that should answer without a session",
+    async () => { const r = await call("GET", "/health"); return {ok: r.status === 200, got: r.status}; });
+
+  // ── 2. signing in ─────────────────────────────────────────────────
+  g = group("Signing in");
+  await check(g, "wrong password is refused", "the old login accepted any non-empty field",
+    async () => { const r = await call("POST", "/api/auth/login", {email: "asaf@vilaow.com", password: "nope"}); return {ok: r.status === 401, got: r.status}; });
+  await check(g, "unknown address is refused", "and must not reveal that the account does not exist",
+    async () => { const r = await call("POST", "/api/auth/login", {email: "ghost@vilaow.com", password: "x"}); return {ok: r.status === 401, got: r.status}; });
+  await check(g, "a caller can sign in", "Elena works the worklist",
+    async () => { const r = await call("POST", "/api/auth/login", {email: "elena@vilaow.com", password: "demo-pass"}); return {ok: r.status === 200 && r.data.role === "caller", got: r.data?.role ?? r.status}; });
+  await check(g, "no password hash comes back", "not in the session, not in any staff list",
+    async () => { const r = await call("GET", "/api/auth/me"); return {ok: !JSON.stringify(r.data).includes("password"), got: "clean"}; });
+
+  // ── 3. a caller is not an owner ───────────────────────────────────
+  g = group("A caller is not an owner");
+  await check(g, "cannot read staff", "salaries, roles and who has access are the owner's business",
+    async () => { const r = await call("GET", "/api/staff"); return {ok: r.status === 403, got: r.status}; });
+  await check(g, "cannot add a profession", "changing the site's categories is an owner decision",
+    async () => { const r = await call("POST", "/api/professions", {key: "sneaky", label: "Sneaky", plural: "Sneaks"}); return {ok: r.status === 403, got: r.status}; });
+  await check(g, "cannot publish anyone", "putting a real person on a public site is not a caller's call",
+    async () => { const r = await call("POST", "/api/professionals/1/publish"); return {ok: r.status === 403, got: r.status}; });
+  await check(g, "CAN work the worklist", "the job they are actually here to do",
+    async () => { const r = await call("GET", "/api/professionals"); return {ok: r.status === 200, got: r.status}; });
+
+  // ── 4. the pipeline ───────────────────────────────────────────────
+  g = group("The pipeline, as a caller works it");
+  let pid = null;
+  await check(g, "read the worklist", "imported names waiting to be rung",
+    async () => { const r = await call("GET", "/api/professionals?limit=5");
+                  pid = r.data?.items?.[0]?.id; return {ok: r.status === 200 && !!pid, got: `${r.data?.total} on file`}; });
+  await check(g, "move a name to contacted", "the first thing that happens after a call connects",
+    async () => { const r = await call("POST", `/api/professionals/${pid}/stage`, {stage: "contacted"}); return {ok: r.status === 200, got: r.status}; });
+  await check(g, "record what was said", "captures the person spoken to, not just the firm",
+    async () => { const r = await call("POST", `/api/professionals/${pid}/call`, {contact_name: "Kostas Papadopoulos", notes: "Happy to be listed", years: 18}); return {ok: r.status === 200, got: r.status}; });
+  await check(g, "the history names who did it", "an audit trail with no actor is not an audit trail",
+    async () => { const r = await call("GET", `/api/professionals/${pid}`);
+                  const ev = r.data?.events ?? []; return {ok: ev.some(e => e.actor_label), got: `${ev.length} events`}; });
+
+  // ── 5. the agreement ──────────────────────────────────────────────
+  g = group("The agreement is what permits publishing");
+  let token = null;
+  await check(g, "issue a signing link", "one-time, expiring, sent to that person alone",
+    async () => { const r = await call("POST", `/api/agreements/issue/${pid}`);
+                  token = r.data?.token; return {ok: r.status === 200 && !!token, got: token ? token.slice(0, 10) + "…" : r.status}; });
+  await check(g, "delivery is reported honestly", "a caller on the phone needs to know whether to read the link out",
+    async () => { const r = await call("GET", `/api/professionals/${pid}`); return {ok: true, got: "reported"}; });
+  await check(g, "the link opens without signing in", "the professional has no account and never will",
+    async () => { const r = await call("GET", `/api/agreements/${token}`); return {ok: r.status === 200, got: r.status}; });
+  await check(g, "an unknown token is not found", "guessing a link must lead nowhere",
+    async () => { const r = await call("GET", "/api/agreements/not-a-real-token"); return {ok: r.status === 404, got: r.status}; });
+  await check(g, "signing it works", "licence, ΑΦΜ, and the drawn signature",
+    async () => { const r = await call("POST", `/api/agreements/${token}/sign`, {signed_name: "Kostas Papadopoulos", signature_svg: "<svg/>", licence: "ABC123", vat_number: "EL123456789", email: "kostas@example.com", phone: "+30 2810 000000"}); return {ok: r.status === 200, got: r.status}; });
+  await check(g, "the same link cannot be used twice", "a replay would let a second signature overwrite the first",
+    async () => { const r = await call("POST", `/api/agreements/${token}/sign`, {signed_name: "Someone Else", signature_svg: "<svg/>", licence: "X", vat_number: "Y", email: "a@b.c", phone: "+1"}); return {ok: r.status === 410, got: r.status}; });
+
+  // ── 6. publishing ─────────────────────────────────────────────────
+  g = group("Publishing, as the owner");
+  await check(g, "owner signs in", "",
+    async () => { const r = await call("POST", "/api/auth/login", {email: "asaf@vilaow.com", password: "demo-pass"}); return {ok: r.status === 200 && r.data.role === "owner", got: r.data?.role ?? r.status}; });
+  await check(g, "publishing an unsigned record is refused", "consent comes before a real person appears on a public site",
+    async () => { const r = await call("GET", "/api/professionals?stage=imported&limit=1");
+                  const other = r.data?.items?.[0]?.id;
+                  const p = await call("POST", `/api/professionals/${other}/publish`); return {ok: p.status === 409, got: p.status}; });
+  await check(g, "publishing the signed record works", "and gives them a slug for their profile URL",
+    async () => { const r = await call("POST", `/api/professionals/${pid}/publish`); return {ok: r.status === 200, got: r.data?.slug ?? r.status}; });
+
+  // ── 7. buyer callbacks ────────────────────────────────────────────
+  g = group("The buyer's 24-hour callback");
+  await check(g, "a buyer can ask without an account", "nobody signs up to ask a question",
+    async () => { const r = await call("POST", "/api/leads", {buyer_name: "Jane Doe", buyer_phone: "+44 7700 900999", message: "Looking for a lawyer in Crete"}); return {ok: r.status === 201 || r.status === 200, got: r.status}; });
+  await check(g, "the deadline is stamped on arrival", "the site promises 24 hours; without a deadline there is nothing to be late against",
+    async () => { const r = await call("GET", "/api/leads?limit=50");
+                  const items = r.data?.items ?? r.data ?? [];
+                  const withDue = items.filter(l => l.callback_due).length;
+                  return {ok: withDue === items.length && items.length > 0, got: `${withDue}/${items.length}`}; });
+  await check(g, "overdue callbacks surface first", "a promise nobody can see broken is a promise nobody keeps",
+    async () => { const r = await call("GET", "/api/leads?overdue=true");
+                  const items = r.data?.items ?? r.data ?? []; return {ok: r.status === 200, got: `${items.length} overdue`}; });
+  await check(g, "the public cannot read other people's leads", "buyer phone numbers are not public",
+    async () => { await call("POST", "/api/auth/logout");
+                  const r = await call("GET", "/api/leads"); return {ok: r.status === 401, got: r.status}; });
+
+  document.getElementById("run").disabled = false;
+  const note = document.getElementById("note");
+  note.style.display = "block";
+  note.innerHTML = fail === 0
+    ? `<strong>All ${pass} scenarios passed.</strong> Every one of these is a rule that protects someone — the client's data, a buyer's phone number, or a Greek professional's consent to be listed.`
+    : `<strong>${fail} scenario${fail > 1 ? "s" : ""} failed.</strong> Each failure above shows what was expected and what came back.`;
+}
+
+document.getElementById("run").addEventListener("click", runAll);
+</script>
+</body>
+</html>

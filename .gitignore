@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# Local-disk uploads. app/storage.py falls back to this in development when
+# FIREBASE_BUCKET is unset — profile photos and licence scans. Real identity
+# documents must never end up in the repository.
+.uploads/
