@@ -5,6 +5,9 @@ still runs — on a machine with no Firebase credentials and no SDK installed.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import logging
 from contextlib import contextmanager
 
@@ -12,6 +15,38 @@ from app.domain.errors import StorageFailure
 from app.ports.storage import Stored
 
 log = logging.getLogger("vilaow.storage")
+
+
+def _credentials_info(value: str) -> dict:
+    """The service account key, given as raw JSON or as base64 of that JSON.
+
+    Base64 exists because a `.env` file cannot carry the raw key safely.
+    python-dotenv expands `\n` escape sequences even inside single quotes, and
+    a service account's `private_key` is full of them — so the value that
+    reaches the process has real newlines where JSON needs escapes, and fails
+    to parse. Render has no such problem: its variables are literal. Accepting
+    both means one setting works in both places.
+
+    Anything unparseable names the variable. The SDK's own error does not, and
+    a mistyped secret is exactly where a clear message earns its keep.
+    """
+    text = value.strip()
+    if not text.startswith("{"):
+        try:
+            text = base64.b64decode(text, validate=True).decode("utf-8")
+        except (binascii.Error, ValueError, UnicodeDecodeError) as exc:
+            raise StorageFailure(
+                "FIREBASE_CREDENTIALS_JSON is neither JSON nor base64. Give it the "
+                "service-account file's contents, or the base64 of them."
+            ) from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise StorageFailure(
+            "FIREBASE_CREDENTIALS_JSON is not valid JSON. If you pasted the raw "
+            "file into a .env, use base64 instead — dotenv mangles the newline "
+            "escapes in private_key."
+        ) from exc
 
 
 @contextmanager
@@ -38,7 +73,8 @@ def _as_storage_failure(what: str):
 
 
 class FirebaseStorage:
-    def __init__(self, bucket_name: str, credentials_file: str | None = None) -> None:
+    def __init__(self, bucket_name: str, credentials_file: str | None = None,
+                 credentials_json: str | None = None) -> None:
         try:
             from google.cloud import storage as gcs  # type: ignore
         except ImportError as exc:  # pragma: no cover
@@ -47,12 +83,18 @@ class FirebaseStorage:
                 "dependencies to use the Firebase backend"
             ) from exc
 
-        client = (
-            gcs.Client.from_service_account_json(credentials_file)
-            if credentials_file
+        # A path locally, the JSON itself on Render. The file wins when both are
+        # present, so a developer's local path is never silently overridden by a
+        # stale environment variable.
+        if credentials_file:
+            client = gcs.Client.from_service_account_json(credentials_file)
+        elif credentials_json:
+            client = gcs.Client.from_service_account_info(
+                _credentials_info(credentials_json)
+            )
+        else:
             # Falls back to GOOGLE_APPLICATION_CREDENTIALS / workload identity.
-            else gcs.Client()
-        )
+            client = gcs.Client()
         self._bucket = client.bucket(bucket_name)
         log.info("storage: firebase bucket %s", bucket_name)
 

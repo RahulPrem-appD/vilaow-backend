@@ -76,13 +76,24 @@ UrlsDep = Annotated[PublicUrls, Depends(get_urls)]
 
 
 @lru_cache
-def _firebase(bucket: str, credentials: str | None) -> StorageBackend:
-    return FirebaseStorage(bucket, credentials)
+def _firebase(bucket: str, credentials_file: str | None,
+              credentials_json: str | None) -> StorageBackend:
+    """Cached, because building a client opens a connection and reads a key.
+
+    The key is part of the cache argument rather than fetched inside, so
+    changing it in the environment produces a new client instead of quietly
+    reusing one built from the old value.
+    """
+    return FirebaseStorage(bucket, credentials_file, credentials_json)
 
 
 def get_storage(settings: SettingsDep) -> StorageBackend:
     if settings.firebase_bucket:
-        return _firebase(settings.firebase_bucket, settings.firebase_credentials_file or None)
+        return _firebase(
+            settings.firebase_bucket,
+            settings.firebase_credentials_file or None,
+            settings.firebase_credentials_json or None,
+        )
     if settings.is_production:
         # A local disk in production is silent data loss on the next deploy.
         raise StorageFailure(

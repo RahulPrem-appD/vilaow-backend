@@ -38,12 +38,42 @@ logging.basicConfig(
 log = logging.getLogger("vilaow")
 
 
+def _check_configuration() -> None:
+    """Fail with a readable message, not a forty-line traceback.
+
+    Raising out of the lifespan works, but FastAPI nests its lifespan context
+    managers about fifteen deep, so the traceback buries the one line that says
+    what is wrong under a wall of `merged_lifespan` frames. On a hosting
+    dashboard, where you are reading a log through a small window, that is the
+    difference between a five-second fix and a puzzle.
+
+    The message is printed on its own and the process exits. Exit code 1, so
+    the platform still reports a failed deploy rather than a crash loop.
+
+    Import-time, so nothing has had a chance to wrap it yet.
+    """
+    try:
+        settings.validate_for_production()
+    except RuntimeError as problem:
+        print("\n" + "=" * 72, file=sys.stderr)
+        print("VILAOW WILL NOT START", file=sys.stderr)
+        print("=" * 72, file=sys.stderr)
+        print(problem, file=sys.stderr)
+        print("=" * 72 + "\n", file=sys.stderr)
+        sys.stderr.flush()
+        raise SystemExit(1) from None
+
+
+# Checked here, at import, and deliberately not inside the lifespan. Starlette
+# wraps a lifespan failure in its own traceback whatever it is raised as, so
+# the one line that says what is wrong ends up under a wall of frames — on a
+# hosting dashboard that is the difference between a five-second fix and a
+# puzzle. At import there is nothing to wrap it.
+_check_configuration()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Refuses to start in production with the published dev secret key, and
-    # refuses to start a development process against the production database.
-    # See Settings.validate_for_production for why each matters.
-    settings.validate_for_production()
 
     # Said once, at boot, so an operator can see what this process can actually
     # do rather than inferring it from a failure. `greek_capable` is here

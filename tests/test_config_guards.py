@@ -44,6 +44,18 @@ def test_a_development_run_will_not_start_against_a_hosted_database():
         _settings(database_url=RENDER).validate_for_production()
 
 
+def test_that_refusal_names_both_causes():
+    """This exact message greeted the first real Render deploy, where the cause
+    was a missing ENVIRONMENT rather than a mispointed DATABASE_URL — and the
+    only advice it gave ("point DATABASE_URL at a local database") was the
+    wrong fix for that situation."""
+    with pytest.raises(RuntimeError) as caught:
+        _settings(database_url=RENDER).validate_for_production()
+    message = str(caught.value)
+    assert "ENVIRONMENT=production" in message, "the deployed-server fix is not named"
+    assert "laptop" in message, "the local fix is not named"
+
+
 def test_a_local_database_is_fine():
     _settings().validate_for_production()
 

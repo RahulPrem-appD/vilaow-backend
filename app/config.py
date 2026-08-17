@@ -56,11 +56,25 @@ class Settings(BaseSettings):
     # refuses that fallback in production, because Render's filesystem is
     # ephemeral and the files would disappear on the next deploy.
     #
-    # firebase_credentials_file is a path to a service account JSON key — a
-    # path, never the key itself, so the secret is not read out of a variable
-    # that ends up in logs or a process listing.
+    # Two ways to supply the service account key, because the two places this
+    # runs want different things:
+    #
+    #   firebase_credentials_file — a path to the JSON key. Best locally: the
+    #     secret stays in one file outside the repo, and nothing can print it
+    #     by accident.
+    #   firebase_credentials_json — the JSON itself. Needed on Render, where an
+    #     environment variable is the straightforward way to pass a secret and
+    #     mounting a file is extra setup.
+    #
+    # If both are set the file wins, so a developer's local path cannot be
+    # silently overridden by a stale variable.
     firebase_bucket: str = ""
     firebase_credentials_file: str = ""
+    firebase_credentials_json: str = ""
+
+    @property
+    def firebase_configured(self) -> bool:
+        return bool(self.firebase_bucket)
 
     @property
     def email_configured(self) -> bool:
@@ -116,12 +130,22 @@ class Settings(BaseSettings):
         # has to depend on anyone remembering.
         if self.database_is_hosted and not self.is_production:
             if os.environ.get(_OVERRIDE) != "1":
+                # Two very different situations reach this line, and the first
+                # version of this message only described one of them. On a
+                # deployed server the cause is a missing ENVIRONMENT variable,
+                # not a mispointed DATABASE_URL, and being told to "point
+                # DATABASE_URL at a local database" is the wrong advice there.
                 raise RuntimeError(
                     f"Refusing to start: ENVIRONMENT is '{self.environment}' but "
-                    f"DATABASE_URL points at a hosted database. A local run would "
-                    f"write to real records. Point DATABASE_URL at a local "
-                    f"database, or set {_OVERRIDE}=1 for a deliberate one-off "
-                    f"against production."
+                    f"DATABASE_URL points at a hosted database.\n"
+                    f"\n"
+                    f"  If this IS the deployed server: set ENVIRONMENT=production. "
+                    f"That is the fix, and it is the usual cause of this message.\n"
+                    f"\n"
+                    f"  If this is a laptop: point DATABASE_URL at a local database, "
+                    f"because a development run would write to real records and email "
+                    f"signing links that only resolve on your own machine. Set "
+                    f"{_OVERRIDE}=1 for a deliberate one-off."
                 )
             if self.site_url_is_local:
                 raise RuntimeError(
