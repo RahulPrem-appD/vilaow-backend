@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from app.api.deps import AssetServiceDep, DbDep
+from app.api.headers import content_disposition
 from app.models import AssetKind, Staff
 from app.schemas import AssetOut
 from app.security import current_staff, require_owner
@@ -85,7 +86,7 @@ def get_asset(
             # never sit in a shared cache.
             "Cache-Control": "public, max-age=86400" if asset.kind is AssetKind.photo
                              else "private, no-store",
-            "Content-Disposition": f'inline; filename="{asset.original_filename or "file"}"',
+            "Content-Disposition": content_disposition(asset.original_filename),
         },
     )
 

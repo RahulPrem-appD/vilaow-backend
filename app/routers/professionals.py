@@ -6,7 +6,7 @@ request into one service call and shapes the reply.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 
 from app.api.deps import DbDep, ProfessionalServiceDep, StaffDep
@@ -15,6 +15,7 @@ from app.schemas import (
     AssignRequest,
     CallRequest,
     EventOut,
+    GoogleReviewCreate,
     ProfessionalDetail,
     ProfessionalListResponse,
     ProfessionalOut,
@@ -89,6 +90,32 @@ def update_professional(
     return ProfessionalOut.model_validate(
         service.update(professional_id, payload.model_dump(exclude_unset=True))
     )
+
+
+@router.post("/{professional_id}/reviews", response_model=ReviewOut,
+             status_code=status.HTTP_201_CREATED)
+def add_review(
+    professional_id: int,
+    payload: GoogleReviewCreate,
+    service: ProfessionalServiceDep,
+    staff: StaffDep,
+) -> ReviewOut:
+    return ReviewOut.model_validate(
+        service.add_google_review(
+            professional_id,
+            author=payload.author, stars=payload.stars,
+            text=payload.text, context=payload.context, staff=staff,
+        )
+    )
+
+
+@router.delete("/{professional_id}/reviews/{review_id}",
+               status_code=status.HTTP_204_NO_CONTENT)
+def delete_review(
+    professional_id: int, review_id: int,
+    service: ProfessionalServiceDep, staff: StaffDep,
+) -> None:
+    service.delete_review(professional_id, review_id, staff=staff)
 
 
 @router.get("/{professional_id}/readiness", response_model=ReadinessOut)

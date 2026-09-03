@@ -316,6 +316,36 @@ def test_the_signed_agreement_can_be_produced_as_a_pdf(as_owner, client, db, pro
     assert staff_copy.content.startswith(b"%PDF")
 
 
+def test_the_pdf_route_survives_a_greek_signer(as_owner, client, db, professions, codes):
+    """Through the real route, not the helper.
+
+    The first version of this test called `content_disposition` directly, which
+    proved the helper encodes Greek and proved nothing about the route using
+    it. `routers/agreements.py` had built the header itself and filtered the
+    name with `str.isalnum()` — Unicode-aware, so it kept every Greek letter
+    and the response failed to encode. Reverting that is invisible to a test
+    that never issues the request, so this one issues it.
+
+    A Greek name here is the ordinary case: the signer's own, or the business
+    name off the client's contact sheet.
+    """
+    p = _a_professional(db, professions, stage=Stage.details_collected)
+    token = as_owner.post(f"/api/agreements/issue/{p.id}").json()["token"]
+    client.post(f"/api/agreements/{token}/sign",
+                json={**SIGN_BODY, "signed_name": "Γιώργος Παπαδόπουλος"})
+    client.post(f"/api/agreements/{token}/verify", json={"code": codes[-1]})
+
+    for response in (client.get(f"/api/agreements/{token}/pdf"),
+                     as_owner.get(f"/api/agreements/professional/{p.id}/pdf")):
+        assert response.status_code == 200, response.text
+        assert response.content.startswith(b"%PDF")
+        disposition = response.headers["content-disposition"]
+        # The ASCII half any client can read, and the real name beside it.
+        assert disposition.startswith("inline;")
+        assert "filename*=UTF-8''" in disposition
+        assert "%CE%93" in disposition, "the Greek name is not in filename*"
+
+
 def test_an_unsigned_agreement_has_no_pdf(as_owner, client, db, professions):
     p = _a_professional(db, professions, stage=Stage.details_collected)
     token = as_owner.post(f"/api/agreements/issue/{p.id}").json()["token"]

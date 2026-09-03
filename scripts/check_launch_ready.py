@@ -71,14 +71,22 @@ def _problems() -> list[str]:
             select(func.count()).select_from(Review).where(Review.kind == ReviewKind.google)
         ) or 0
         if google:
-            # No code path creates these; they were inserted by hand from the
-            # client's own sample content. He flagged it himself in
-            # client-reference/handover/README.md, item 5.
+            # Staff entry exists now (POST /api/professionals/{id}/reviews), so
+            # the bar is no longer "no code path creates these" but "every row
+            # is a real review". These ones were pasted in by hand from the
+            # client's sample content — he flagged it himself in
+            # client-reference/handover/README.md, item 5 — and until someone
+            # has checked them against the professional's public listing, an
+            # invented review attributed to Google is still a UCPD offence
+            # however well intentioned.
+            # The count is every Google row, new and old alike: this check
+            # cannot tell a real copy from an invented one, so it asks rather
+            # than accuses.
             found.append(
-                f"{google} review(s) are attributed to Google and no code creates "
-                f"them — they came from sample content. Attributing invented text to "
-                f"Google is a UCPD offence however well intentioned. Import them "
-                f"properly or remove them."
+                f"{google} Google review(s) are on file. Each one must be a real "
+                f"review copied from the professional's public listing — the rows "
+                f"that came with the sample content are not. Confirm every one by "
+                f"hand, and re-enter or remove the rest."
             )
 
     # Copy the client still has to supply. These render visibly on the page, so

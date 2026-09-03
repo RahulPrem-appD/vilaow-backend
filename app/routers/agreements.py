@@ -15,6 +15,7 @@ from fastapi.responses import Response
 
 from app.adapters.pdf import agreement as agreement_pdf
 from app.api.clients import client_ip
+from app.api.headers import content_disposition
 from app.api.deps import AgreementServiceDep, AssetServiceDep, SettingsDep
 from app.domain import terms as terms_module
 from app.models import Staff
@@ -163,13 +164,17 @@ def resend_code(token: str, service: AgreementServiceDep) -> AgreementVerifyOut:
 
 
 def _pdf(agreement, professional) -> Response:
+    # The name is Greek far more often than not — a signer's own name, or the
+    # business name off the client's contact sheet. The filter that used to
+    # stand here was `str.isalnum()`, which is Unicode-aware and so kept every
+    # Greek letter, and the header then failed to encode: this document, the
+    # binding one, 500'd on every request for anyone whose name was not ASCII.
     name = agreement.signed_name or professional.business_name or "agreement"
-    safe = "".join(c if c.isalnum() or c in "-_ " else "" for c in name).strip() or "agreement"
     return Response(
         content=agreement_pdf.render(agreement, professional),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="Vilaow agreement - {safe}.pdf"',
+            "Content-Disposition": content_disposition(f"Vilaow agreement - {name}.pdf"),
             # A signed agreement is personal data; it must not sit in a proxy.
             "Cache-Control": "private, no-store",
         },

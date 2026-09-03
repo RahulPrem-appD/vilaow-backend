@@ -58,11 +58,13 @@ class Professional(Base):
 
     profession_id: Mapped[int | None] = mapped_column(ForeignKey("professions.id"), index=True)
 
-    # Shown on the profile, exactly as his own pages already do it: stars and
-    # a count, attributed. His generator fills {gstars} and {gcount} and his
-    # review blocks read "via Google". Attribution is what makes showing another
-    # platform's numbers legitimate, so `source` is required reading, not
-    # decoration — a rating with no provenance must not be published.
+    # As imported from his spreadsheet: stars, a count, and where they came
+    # from. His generator fills {gstars} and {gcount} and his review blocks
+    # read "via Google". Kept as the record of what the listing showed at
+    # import — staff still read them — but no longer published: the public
+    # rating is computed from the review rows (app/routers/public.py), because
+    # attribution is what makes showing another platform's numbers legitimate
+    # and these three could say 33 while two reviews existed.
     rating: Mapped[float | None] = mapped_column()
     review_count: Mapped[int | None] = mapped_column(Integer)
     source: Mapped[str | None] = mapped_column(String(80))
@@ -78,6 +80,10 @@ class Professional(Base):
     bio: Mapped[str | None] = mapped_column(Text)
     education: Mapped[str | None] = mapped_column(Text)
     specialties: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    # Selling points shown as chips on the profile — "Fixed fee", "Golden
+    # Visa", "Terms in English". Typed by a caller from what the professional
+    # offers on the call, like the rest of this block.
+    highlights: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     languages: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     years: Mapped[int | None] = mapped_column(Integer)
     license: Mapped[str | None] = mapped_column(String(120))
@@ -98,6 +104,15 @@ class Professional(Base):
     cost_note: Mapped[str | None] = mapped_column(Text)
     costs: Mapped[list | None] = mapped_column(JSONB, default=list)
     faq: Mapped[list | None] = mapped_column(JSONB, default=list)
+
+    # Which public fields this one page may show, as keys from
+    # app/domain/visibility.py. Null means "inherit my profession's list"; an
+    # empty list is a real answer — "show none of them" — and is never stored
+    # as null, because the difference between the two is the point of the
+    # column. The list is validated against the closed vocabulary on the way
+    # in, which is also what keeps phone, email and their kind unpublishable:
+    # a key that is not in the vocabulary cannot be switched on.
+    visible_fields: Mapped[list[str] | None] = mapped_column(ARRAY(String))
 
     # Answers to this profession's own fields, keyed by ProfessionField.key.
     # Held as one document rather than a row per answer: the values are only

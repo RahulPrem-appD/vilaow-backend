@@ -1,10 +1,11 @@
 """Professionals — request and response shapes."""
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.models import Stage
 from app.schemas.common import ORMModel
@@ -13,6 +14,25 @@ from app.schemas.reviews import EventOut, ReviewOut
 
 
 # ── professionals ────────────────────────────────────────────────────────────
+
+def json_storable(value: Any) -> Any:
+    """Refuse the two numbers `json.loads` accepts and JSONB does not.
+
+    FastAPI parses request bodies with `json.loads`, which takes the
+    non-standard `NaN`, `Infinity` and `-Infinity` literals. `list[Any]`
+    imposes nothing, so they reached the JSONB column and failed on insert as
+    a 500 — the same failure `_finite` prevents for owner-defined number
+    fields, on the two columns that were never routed through it.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("must be a finite number")
+    if isinstance(value, list):
+        return [json_storable(item) for item in value]
+    if isinstance(value, dict):
+        return {key: json_storable(item) for key, item in value.items()}
+    return value
+
+
 class ProfessionalOut(ORMModel):
     id: int
     slug: str | None
@@ -40,6 +60,7 @@ class ProfessionalOut(ORMModel):
     bio: str | None
     education: str | None
     specialties: list[str] | None
+    highlights: list[str] | None
     languages: list[str] | None
     years: int | None
     license: str | None
@@ -54,6 +75,13 @@ class ProfessionalOut(ORMModel):
     cost_note: str | None
     costs: list[Any] | None
     faq: list[Any] | None
+
+    # Which fields this record's public page shows, as keys from
+    # app/domain/visibility.py — null means inherit the profession's list.
+    # Staff-facing like the rest of this schema: the public serialiser reads it
+    # to decide what to withhold, never to publish something the record never
+    # showed before.
+    visible_fields: list[str] | None
 
     # Raw answers, keyed by field key. Admin-only — this is the staff schema.
     # The public serialiser never touches this; it rebuilds a filtered view
@@ -90,6 +118,7 @@ class ProfessionalUpdate(ORMModel):
     bio: str | None = None
     education: str | None = None
     specialties: list[str] | None = None
+    highlights: list[str] | None = None
     languages: list[str] | None = None
     years: int | None = None
     license: str | None = None
@@ -102,11 +131,27 @@ class ProfessionalUpdate(ORMModel):
     costs: list[Any] | None = None
     faq: list[Any] | None = None
 
+    # Which of the public fields this professional's page shows, as keys from
+    # app/domain/visibility.py. Validated against that closed vocabulary by
+    # the service rather than accepted as free text, so an unknown key is a
+    # 422 naming it instead of a silent no-op. Null goes back to inheriting
+    # the profession's list; an empty list is a real answer — show nothing.
+    visible_fields: list[str] | None = None
+
     # Answers to the profession's own fields, keyed by field key. Merged over
     # what is already stored rather than replacing it, so a form that submits
     # one field does not silently wipe the rest. Validated against the field
     # definitions before anything is written.
     custom: dict[str, Any] | None = None
+
+    # `costs`, `faq` and `custom` are the three free-shaped values on this
+    # schema that reach a JSONB column. A validator rather than a type, because
+    # the shapes are genuinely open — what has to be closed is the one value
+    # Postgres will not store.
+    @field_validator("costs", "faq", "custom")
+    @classmethod
+    def _finite_json(cls, value: Any) -> Any:
+        return json_storable(value)
 
     notes: str | None = None
 
@@ -129,3 +174,18 @@ class CallRequest(ProfessionalUpdate):
     overrides the default post-call stage (details_collected) when given."""
 
     stage: Stage | None = None
+
+class GoogleReviewCreate(ORMModel):
+    """A rating a caller copies from the professional's public listing.
+
+    There is deliberately no edit shape to match this one: a wrong Google
+    review is deleted and retyped, which keeps the audit trail honest about
+    what was on the record and when.
+    """
+
+    author: str = Field(min_length=1, max_length=120)
+    stars: int = Field(ge=1, le=5)
+    text: str | None = None
+    # "Pre-purchase survey, May 2024" — what the buyer was going through, so
+    # the stars have a situation attached rather than floating alone.
+    context: str | None = Field(default=None, max_length=160)

@@ -1,0 +1,26 @@
+# `COPY . .` in the build stage, and the final stage copies /app wholesale from
+# it. Without this file that meant backend/.env — live SMTP credentials and a
+# Firebase service account key — was baked into every locally built image, and
+# stayed there in the layer even though nothing in the image reads it.
+#
+# Render builds from git, where .env is ignored, so the deployed image was never
+# affected. Any `docker build` on a developer's machine or in CI was.
+.env
+.env.*
+!.env.example
+
+# Rebuilt inside the image by `uv sync`, and built for the host's platform, so
+# copying it in is both a large layer and the wrong binaries.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# History and local scratch have no business in a runtime image.
+.git/
+.gitignore
+htmlcov/
+.coverage
+*.sqlite3

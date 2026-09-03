@@ -61,8 +61,13 @@ def test_published_records_are_visible_without_signing_in(client, db, profession
 
 
 # ── leakage ─────────────────────────────────────────────────────────────────
+# `vat_number` and `license` are deliberately absent from this list: they are
+# public fields now (app/domain/visibility.py), so their *names* appear in the
+# profile JSON as null for a record nobody has touched. The guarantee moved
+# with them — the stored values never appear until their key is switched on —
+# and tests/test_visibility.py holds that line.
 LEAKY = ["phone", "email", "notes", "stage", "assigned_to", "called_by",
-         "batch_id", "vat_number", "password"]
+         "batch_id", "password"]
 
 
 @pytest.mark.parametrize("field", LEAKY)
@@ -76,6 +81,11 @@ def test_the_profile_never_carries_internal_fields(client, db, professions, fiel
     _published(db, professions, vat_number="EL123456789", license="BAR-99")
     body = client.get("/api/public/professionals/kostas-papadopoulos").text
     assert field not in body
+    # The two columns that became public fields publish nothing for a record
+    # nobody has touched: the keys may sit in the JSON as null, the values
+    # never travel.
+    assert "EL123456789" not in body
+    assert "BAR-99" not in body
 
 
 def test_the_direct_phone_number_is_never_published(client, db, professions):
@@ -88,19 +98,26 @@ def test_the_direct_phone_number_is_never_published(client, db, professions):
 
 # ── attribution ─────────────────────────────────────────────────────────────
 def test_a_rating_always_carries_its_source(client, db, professions):
-    _published(db, professions)
+    p = _published(db, professions)
+    db.add(Review(professional_id=p.id, author="G.", stars=5, source="via Google"))
+    db.commit()
     item = client.get("/api/public/professionals").json()["items"][0]
-    assert item["rating"] == 4.8
-    assert item["rating_source"] == "Google Maps"
+    assert item["rating"] == 5.0
+    assert item["review_count"] == 1
+    assert item["rating_source"] == "via Google"
 
 
 def test_a_rating_with_no_source_is_withheld(client, db, professions):
     """Publishing another platform's number without saying whose it is would be
-    wrong, so an unattributed rating is not shown at all."""
-    _published(db, professions, source=None)
+    wrong, so a review that carries no provenance does not lend its stars to
+    the average — even though the imported columns beside it say otherwise."""
+    p = _published(db, professions)
+    db.add(Review(professional_id=p.id, author="G.", stars=5, source=None))
+    db.commit()
     item = client.get("/api/public/professionals").json()["items"][0]
     assert item["rating"] is None
     assert item["review_count"] is None
+    assert item["rating_source"] is None
 
 
 def test_reviews_come_back_with_their_provenance(client, db, professions):
@@ -111,6 +128,38 @@ def test_reviews_come_back_with_their_provenance(client, db, professions):
     db.commit()
     r = client.get("/api/public/professionals/kostas-papadopoulos").json()
     assert r["reviews"][0]["source"] == "via Google"
+
+
+# ── the highlights chips ────────────────────────────────────────────────────
+def test_highlights_come_back_on_the_profile(client, db, professions):
+    _published(db, professions,
+               highlights=["Fixed fee", "Golden Visa", "Terms in English"])
+    r = client.get("/api/public/professionals/kostas-papadopoulos").json()
+    assert r["highlights"] == ["Fixed fee", "Golden Visa", "Terms in English"]
+
+
+def test_a_profile_with_no_highlights_comes_back_empty(client, db, professions):
+    _published(db, professions)
+    assert client.get("/api/public/professionals/kostas-papadopoulos").json()["highlights"] is None
+
+
+def test_the_listing_does_not_carry_highlights(client, db, professions):
+    """A buyer skims the directory and reads the profile; the chips are the
+    profile's, and sending them on every card would only fatten the payload."""
+    _published(db, professions, highlights=["Fixed fee"])
+    item = client.get("/api/public/professionals").json()["items"][0]
+    assert "highlights" not in item
+
+
+def test_highlights_are_stored_by_a_plain_edit(as_caller, db, professions):
+    p = _pro(db, professions)
+    r = as_caller.patch(f"/api/professionals/{p.id}",
+                        json={"highlights": ["Fixed fee", "Callback in 24h"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["highlights"] == ["Fixed fee", "Callback in 24h"]
+
+    db.refresh(p)
+    assert p.highlights == ["Fixed fee", "Callback in 24h"]
 
 
 # ── filters ─────────────────────────────────────────────────────────────────

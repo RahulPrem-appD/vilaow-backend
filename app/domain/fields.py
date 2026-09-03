@@ -19,6 +19,7 @@ including keys left behind by a field that was later switched to internal.
 """
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Any, Iterable
 
@@ -54,6 +55,24 @@ def is_blank(value: Any) -> bool:
     return False
 
 
+def _finite(field: ProfessionField, value: int | float) -> int | float:
+    """Reject the two numbers JSON allows and Postgres does not.
+
+    `json.loads` accepts `Infinity`, `-Infinity` and `NaN`. They clear every
+    other check here and then fail on insert into a JSONB column, which is a
+    500 from a request that looked valid the whole way down.
+
+    This function is why that stopped being possible — except it was called
+    from two places and never actually written, so from the commit that added
+    the calls until this one, *every* answer to a number field raised
+    NameError instead. The suite stayed green because nothing in it ever
+    constructed a `FieldType.number`; test_fields_number.py now does.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise FieldError(field.key, "expected a number")
+    return value
+
+
 def coerce(field: ProfessionField, value: Any) -> Any:
     """Validate one answer and return it in the shape it should be stored.
 
@@ -84,7 +103,16 @@ def coerce(field: ProfessionField, value: Any) -> Any:
             if not isinstance(value, (list, tuple)):
                 raise FieldError(field.key, "expected a list of options")
             allowed = set(field.options or [])
-            chosen = list(dict.fromkeys(value))  # de-duplicate, keep order
+            # `dict.fromkeys` hashes every item, so a nested list or object in
+            # the payload raised TypeError here — uncaught, because
+            # `validate_custom` only catches FieldError, so a malformed answer
+            # came back as a 500 while every sibling branch returns 422.
+            try:
+                chosen = list(dict.fromkeys(value))  # de-duplicate, keep order
+            except TypeError:
+                raise FieldError(
+                    field.key, "expected a list of options"
+                ) from None
             for item in chosen:
                 if item not in allowed:
                     raise FieldError(field.key, f"'{item}' is not one of the allowed options")

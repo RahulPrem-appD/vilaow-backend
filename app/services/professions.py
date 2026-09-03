@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.errors import Conflict, Invalid, NotFound
+from app.domain.visibility import validate
 from app.models import FieldType, Profession, ProfessionField
 
 # Only these two are answered by picking from a list, so only these two need
@@ -37,6 +38,11 @@ class ProfessionService:
     def create(self, data: dict) -> Profession:
         if self._db.scalar(select(Profession).where(Profession.key == data["key"])):
             raise Conflict("A profession with this key already exists")
+        # Same vocabulary check as the professional write path: this list
+        # governs every profile in the profession, so a key that names nothing
+        # would look load-bearing while deciding nothing.
+        if data.get("visible_fields") is not None:
+            data["visible_fields"] = validate(data["visible_fields"])
         profession = Profession(**data)
         self._db.add(profession)
         self._db.commit()
@@ -48,6 +54,8 @@ class ProfessionService:
         if "key" in data and data["key"] != profession.key:
             if self._db.scalar(select(Profession).where(Profession.key == data["key"])):
                 raise Conflict("A profession with this key already exists")
+        if data.get("visible_fields") is not None:
+            data["visible_fields"] = validate(data["visible_fields"])
         for name, value in data.items():
             setattr(profession, name, value)
         self._db.commit()

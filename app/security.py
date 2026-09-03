@@ -72,7 +72,17 @@ def issue_session(response: Response, staff: Staff) -> None:
 
 
 def clear_session(response: Response) -> None:
-    response.delete_cookie(settings.session_cookie, path="/")
+    # The same attributes it was set with. A browser matches a replacement
+    # cookie on name, domain and path, so this mostly worked already — but
+    # leaving them off meant the deletion cookie and the session cookie
+    # disagreed about SameSite and Secure, which is the kind of difference
+    # that behaves fine until a browser version decides it does not.
+    response.delete_cookie(
+        settings.session_cookie,
+        path="/",
+        samesite=settings.session_samesite,
+        secure=settings.is_production or settings.session_samesite == "none",
+    )
 
 
 def current_staff(request: Request, db: Session = Depends(get_db)) -> Staff:

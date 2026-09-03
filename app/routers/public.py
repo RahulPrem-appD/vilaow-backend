@@ -6,19 +6,27 @@ number, their notes, their pipeline stage and who is calling them — none of
 which belongs on a public page. Sharing a schema between the two would mean one
 forgotten field is a data leak, so there is no shared schema to forget.
 
-Two rules hold everywhere in this file:
+Three rules hold everywhere in this file:
   * only published records are visible, ever
   * a rating is never returned without the source it came from
+  * a field is returned only when its key is visible for that record
+    (app/domain/visibility.py: the professional's own list, else its
+    profession's, else the default) — absent from the listing card and the
+    profile alike, because hidden in one place and shown in the other would be
+    a half-measure. The decision itself never travels in a response: which
+    fields a buyer does not see is an editorial matter, not something a buyer
+    needs to read.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.domain.fields import public_values
+from app.domain.visibility import resolve
 from app.models import (
     Introduction, IntroOutcome, Profession, Professional, ProfessionField, Review, ReviewKind,
 )
@@ -73,6 +81,10 @@ class PublicCard(BaseModel):
     rating_source: str | None = None
     years: int | None = None
     languages: list[str] | None = None
+    # The year Vilaow vetted them, which his card prints as
+    # "Verified by Vilaow · 2026". It was already on the record and simply not
+    # sent, so the directory could not draw the chip his design has.
+    verified_year: int | None = None
 
 
 class PublicProfile(PublicCard):
@@ -80,16 +92,26 @@ class PublicProfile(PublicCard):
     coverage: str | None = None
     bio: str | None = None
     specialties: list[str] | None = None
+    # The chips under the headline — short selling points, not sentences. The
+    # card does not carry them: a buyer skims the directory and reads the
+    # profile.
+    highlights: list[str] | None = None
     education: str | None = None
     costs: list | None = None
     cost_note: str | None = None
     faq: list | None = None
-    verified_year: int | None = None
     reviews: list[PublicReview] = []
     # Owner-defined answers, already filtered to the public ones. Built from
     # the field definitions rather than from the stored keys, so a value with
     # no public definition behind it cannot appear here however it got saved.
     details: list[PublicFieldValue] = []
+    # The two columns that have never been published. They are fields like the
+    # others now, but their keys are not in the default set, so they reach a
+    # buyer only when somebody deliberately switches them on — null otherwise.
+    # They never appear on a listing card: a buyer who wants the numbers is
+    # reading the profile, not skimming the directory.
+    license: str | None = None
+    vat_number: str | None = None
 
 
 def _initials(name: str) -> str:
@@ -97,10 +119,35 @@ def _initials(name: str) -> str:
     return "".join(p[0].upper() for p in parts[:2]) or "V"
 
 
-def _card(p: Professional) -> dict:
+def _visible(p: Professional) -> frozenset[str]:
+    """The field keys this one record may publish.
+
+    `resolve` is the whole rule: the professional's own list when it has one,
+    else its profession's, else the default. The profession is already
+    reachable from the row — `_card` reads its label in the same breath — so
+    resolving adds no query this page was not already issuing, in the listing
+    as on the profile.
+    """
+    return resolve(
+        p.visible_fields,
+        p.profession.visible_fields if p.profession else None,
+    )
+
+
+def _card(p: Professional, visible: frozenset[str]) -> dict:
     # The public name is the person if we have one, the firm otherwise. His
     # spreadsheet lists businesses, and a buyer wants to know who they will
     # actually speak to.
+    #
+    # The rating trio is deliberately absent: it is computed from the review
+    # rows rather than read off the imported columns, because the import
+    # carried whatever the spreadsheet said while the page could only render
+    # the reviews it had — so a profile could claim 33 reviews and show two.
+    # Each caller supplies the trio through _visible_rating.
+    #
+    # A key that is not visible comes back None. It never changes another
+    # field's value, and never turns a None into a value — withholding is the
+    # only direction this moves in.
     name = p.contact_name or p.business_name
     return {
         "slug": p.slug,
@@ -109,16 +156,60 @@ def _card(p: Professional) -> dict:
         "profession_key": p.profession.key if p.profession else None,
         "city": p.city,
         "region": p.region,
-        "photo": p.photo,
+        "photo": p.photo if "photo" in visible else None,
         "initials": _initials(name),
-        # Attribution travels with the number or neither is returned. Publishing
-        # another platform's rating without saying whose it is would be wrong.
-        "rating": p.rating if p.source else None,
-        "review_count": p.review_count if p.source else None,
-        "rating_source": p.source,
-        "years": p.years,
-        "languages": p.languages,
+        "years": p.years if "years" in visible else None,
+        "languages": p.languages if "languages" in visible else None,
+        "verified_year": p.verified_year if "verified_year" in visible else None,
     }
+
+
+def _published_rating(
+    count: int | None, average: float | None, sources: list[str | None],
+) -> tuple[float | None, int | None, str | None]:
+    """The rating, its count and its attribution, from the rows behind them.
+
+    The file's standing rule decides the empty cases: a number never travels
+    without saying whose it is. With no rows there is no number, and with rows
+    but no source on any of them there is nobody to attribute the stars to —
+    in both, all three come back None and the page omits the rating rather
+    than print stars it cannot account for.
+
+    Rows that do carry a source are counted and averaged together with any
+    that do not, so the count stays the number of reviews the page actually
+    shows. That only matters for rows written by hand: both code paths that
+    create a review set a source, so a sourceless row is legacy data, and one
+    sitting beside sourced ones is a record to correct rather than a case to
+    model here.
+    """
+    if not count or average is None:
+        return None, None, None
+    attributed = sorted({s for s in sources if s})
+    if not attributed:
+        return None, None, None
+    if len(attributed) == 1:
+        source = attributed[0]
+    else:
+        # Two provenances in one average. Naming only one would let the other
+        # platform's stars pass as the named one's, so the page says both.
+        source = "Google and Vilaow buyers"
+    return round(average, 1), count, source
+
+
+def _visible_rating(
+    visible: frozenset[str], count: int | None, average: float | None, sources: list[str | None],
+) -> tuple[float | None, int | None, str | None]:
+    """The published rating trio, or nothing at all when `rating` is not visible.
+
+    Blanket rather than partial on purpose: the stars, the count and the
+    attribution are one claim, so one key takes all three and never leaves a
+    number standing without the count that sizes it or the source that
+    legitimises it. Both readers of the trio go through here so the listing
+    and the profile cannot drift apart on what a hidden rating means.
+    """
+    if "rating" not in visible:
+        return None, None, None
+    return _published_rating(count, average, sources)
 
 
 class PublicStats(BaseModel):
@@ -207,12 +298,51 @@ def list_professionals(
         # cannot live in a form the owner might not add to Notary.
         stmt = stmt.where(Professional.languages.any(language))
 
+    # The total is counted from the professionals-only statement, before any
+    # reviews are joined, so it stays a count of people and not of the
+    # arithmetic attached to them.
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    rows = db.scalars(
-        stmt.order_by(Professional.rating.desc().nullslast(), Professional.id)
-            .limit(limit).offset(offset)
+
+    # One aggregate over reviews rather than a query per professional. The
+    # directory is the hot page, and the grouping keeps every card's rating to
+    # one joined row: the average, the count, and the distinct sources —
+    # array_agg(distinct ...) so the attribution arrives in the same pass.
+    per_professional = select(
+        Review.professional_id.label("professional_id"),
+        func.avg(Review.stars).label("average"),
+        func.count().label("review_count"),
+        func.array_agg(distinct(Review.source)).label("sources"),
+    ).group_by(Review.professional_id).subquery()
+
+    rows = db.execute(
+        stmt.add_columns(
+            per_professional.c.average,
+            per_professional.c.review_count,
+            per_professional.c.sources,
+        )
+        .outerjoin(per_professional,
+                   per_professional.c.professional_id == Professional.id)
+        # Ordered by the number the buyer sees, not the imported column that
+        # used to stand in for it; `id` keeps the order stable when averages
+        # tie or are missing entirely.
+        #
+        # Visibility deliberately does not reach this ORDER BY, so a
+        # professional whose rating is hidden still sorts by the same average
+        # as everyone else. Where a record sits on the page is not a number
+        # the page prints; the order is not a published claim.
+        .order_by(per_professional.c.average.desc().nullslast(), Professional.id)
+        .limit(limit).offset(offset)
     ).all()
-    return {"total": total, "items": [_card(p) for p in rows]}
+
+    items = []
+    for p, average, count, sources in rows:
+        visible = _visible(p)
+        card = _card(p, visible)
+        card["rating"], card["review_count"], card["rating_source"] = _visible_rating(
+            visible, count, float(average) if average is not None else None, sources or []
+        )
+        items.append(card)
+    return {"total": total, "items": items}
 
 
 @router.get("/professionals/{slug}", response_model=PublicProfile)
@@ -231,6 +361,18 @@ def get_professional(slug: str, db: Session = Depends(get_db)):
         select(Review).where(Review.professional_id == p.id).order_by(Review.created_at.desc())
     ).all()
 
+    visible = _visible(p)
+
+    # The published rating is this list, averaged and attributed — the same
+    # computation the listing does in one aggregate query, done here in Python
+    # because the rows are already loaded for the page below.
+    rating, review_count, rating_source = _visible_rating(
+        visible,
+        len(reviews),
+        sum(r.stars for r in reviews) / len(reviews) if reviews else None,
+        [r.source for r in reviews],
+    )
+
     # Only the fields the owner marked public, in his display order. Note this
     # reads the *definitions* and looks values up, never the reverse — see
     # app/fields.public_values for why that direction is the safe one.
@@ -242,17 +384,26 @@ def get_professional(slug: str, db: Session = Depends(get_db)):
         )
     ).all() if p.profession_id else []
 
+    # The profile-only fields, each withheld under its own key — except
+    # costs, where the note travels with the list because a note annotating
+    # prices the page no longer shows would be a note about nothing.
     return PublicProfile(
-        **_card(p),
-        subrole=p.subrole,
-        coverage=p.coverage,
-        bio=p.bio,
-        specialties=p.specialties,
-        education=p.education,
-        costs=p.costs,
-        cost_note=p.cost_note,
-        faq=p.faq,
-        verified_year=p.verified_year,
+        **_card(p, visible),
+        rating=rating,
+        review_count=review_count,
+        rating_source=rating_source,
+        subrole=p.subrole if "subrole" in visible else None,
+        coverage=p.coverage if "coverage" in visible else None,
+        bio=p.bio if "bio" in visible else None,
+        specialties=p.specialties if "specialties" in visible else None,
+        highlights=p.highlights if "highlights" in visible else None,
+        education=p.education if "education" in visible else None,
+        costs=p.costs if "costs" in visible else None,
+        cost_note=p.cost_note if "costs" in visible else None,
+        faq=p.faq if "faq" in visible else None,
+        # Leaving `reviews` out empties the list of written reviews and leaves
+        # the stars above them alone — the average and the words are separate
+        # claims, and a professional may withdraw one and keep the other.
         reviews=[
             PublicReview(
                 author=r.author, stars=r.stars, text=r.text, context=r.context,
@@ -260,6 +411,16 @@ def get_professional(slug: str, db: Session = Depends(get_db)):
                 verified=r.kind is ReviewKind.vilaow_verified,
             )
             for r in reviews
-        ],
-        details=[PublicFieldValue(**d) for d in public_values(fields, p.custom)],
+        ] if "reviews" in visible else [],
+        # Leaving `details` out withdraws the whole block of owner-defined
+        # answers. What would have been in it is still decided by each field's
+        # `public` flag above — the two layers compose rather than either
+        # overriding the other.
+        details=[PublicFieldValue(**d) for d in public_values(fields, p.custom)]
+        if "details" in visible else [],
+        # The two columns the default keeps off: they arrive here only when
+        # their key was switched on, and null otherwise. On a card they never
+        # arrive at all.
+        license=p.license if "license" in visible else None,
+        vat_number=p.vat_number if "vat_number" in visible else None,
     )

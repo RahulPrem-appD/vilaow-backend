@@ -13,6 +13,9 @@ class ProfessionOut(ORMModel):
     hint: str | None
     position: int
     active: bool
+    # The profession-wide default for which public fields its professionals
+    # show — keys from app/domain/visibility.py, null meaning "the default".
+    visible_fields: list[str] | None
 
 class ProfessionCreate(ORMModel):
     key: str
@@ -21,6 +24,7 @@ class ProfessionCreate(ORMModel):
     hint: str | None = None
     position: int = 0
     active: bool = True
+    visible_fields: list[str] | None = None
 
 class ProfessionUpdate(ORMModel):
     key: str | None = None
@@ -29,3 +33,4 @@ class ProfessionUpdate(ORMModel):
     hint: str | None = None
     position: int | None = None
     active: bool | None = None
+    visible_fields: list[str] | None = None

@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from app.domain.errors import Conflict, Invalid, NotFound
 from app.domain.fields import validate_custom
 from app.domain.publishing import Readiness
-from app.models import Event, Profession, Professional, Stage, Staff
+from app.domain.visibility import validate
+from app.models import Event, Profession, Professional, Review, ReviewKind, Stage, Staff
 from app.ports.clock import Clock
 from app.repositories.publishing import profession_fields, readiness
 from app.services.photos import photo_reference
@@ -159,6 +160,15 @@ class ProfessionalService:
                 )
             professional.custom = merged
 
+        # The visibility list is closed vocabulary, so it goes through
+        # validate rather than being stored as typed: an unknown key raises
+        # Invalid (a 422 naming it) instead of sitting in the column looking
+        # like a working decision while deciding nothing. The cleaned list
+        # comes back in FIELD_KEYS order, so two callers typing the same keys
+        # in different orders store the same value.
+        if data.get("visible_fields") is not None:
+            data["visible_fields"] = validate(data["visible_fields"])
+
         # The same rule the signing path enforces. This one is not about
         # trusting staff: the caller's call form exposes `photo` as an editable
         # field, so a pasted external URL would be served from a public profile
@@ -176,6 +186,58 @@ class ProfessionalService:
 
     def readiness(self, professional_id: int) -> Readiness:
         return readiness(self._db, self.get(professional_id))
+
+    # ── Google reviews ────────────────────────────────────────────────────────
+    def add_google_review(self, professional_id: int, *, author: str, stars: int,
+                          text: str | None, context: str | None,
+                          staff: Staff) -> Review:
+        """A rating a caller copies from the professional's public listing.
+
+        The words are Google's, so the row is stored as kind=google — never
+        described as verified — and `source` is set rather than left blank,
+        because a rating published without provenance is the one thing this
+        record is not allowed to carry.
+        """
+        professional = self.get(professional_id)
+        review = Review(
+            professional_id=professional.id,
+            kind=ReviewKind.google,
+            introduction_id=None,
+            author=author.strip(),
+            stars=stars,
+            text=(text or "").strip() or None,
+            context=(context or "").strip() or None,
+            source="via Google",
+        )
+        self._db.add(review)
+        self._record(professional.id, staff, "google_review_added",
+                     detail=f"{stars} stars by {review.author}")
+        self._db.commit()
+        self._db.refresh(review)
+        return review
+
+    def delete_review(self, professional_id: int, review_id: int, *, staff: Staff) -> None:
+        """Removal of a review typed in by hand — and only of one typed in by
+        hand. A mistyped Google review can be deleted and retyped; a
+        `vilaow_verified` one is refused, because clause 4 promises reviews
+        "cannot be bought, edited or removed on request", and a promise the
+        delete button can quietly break was never made."""
+        review = self._db.get(Review, review_id)
+        # A review belonging to another professional is reported the same way
+        # as a missing one: NotFound deliberately covers both, so probing ids
+        # across records learns nothing.
+        if review is None or review.professional_id != professional_id:
+            raise NotFound("Review not found")
+        if review.kind is ReviewKind.vilaow_verified:
+            raise Conflict(
+                "A buyer's verified review cannot be removed — the agreement "
+                "promises reviews are never edited or deleted on request"
+            )
+
+        detail = f"review #{review_id} by {review.author} deleted"
+        self._db.delete(review)
+        self._record(professional_id, staff, "google_review_deleted", detail=detail)
+        self._db.commit()
 
     # ── pipeline moves ──────────────────────────────────────────────────────
     def change_stage(self, professional_id: int, stage: Stage, note: str | None,

@@ -7,7 +7,9 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from time import sleep
+
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -121,10 +123,48 @@ app.include_router(assets.router)
 
 @app.get("/health")
 def health() -> dict:
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        database = "ok"
-    except Exception:
-        database = "unreachable"
-    return {"status": "ok", "database": database}
+    """Is this deployment able to do its job?
+
+    Reports whether each dependency is *configured and reachable*, never what it
+    is configured with. `email` is the one that has actually bitten us: Render
+    blocked outbound SMTP on the old plan, and the only symptom was signing
+    invitations silently never arriving. A boolean here is worth far more than
+    it costs — it says nothing an attacker can use, and it turns "is mail set
+    up on prod?" from a support thread into one HTTP request.
+    """
+    database = "unreachable"
+    # Three tries, not one. This endpoint is `healthCheckPath` in render.yaml
+    # and the Dockerfile's HEALTHCHECK, so a single failed `SELECT 1` decided
+    # whether a deploy was rolled back and whether a running container was
+    # restarted. Render Postgres failover makes a connection fail for a few
+    # seconds; a saturated pool can outlast the probe's own timeout. Neither is
+    # something restarting this process can fix, and a restart loop against a
+    # database that is merely busy is worse than serving the request slowly.
+    #
+    # Bounded well under the 5s curl timeout the Dockerfile sets, so the probe
+    # never times out waiting for us to finish deciding.
+    for attempt in range(3):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            database = "ok"
+            break
+        except Exception:
+            if attempt < 2:
+                sleep(0.4)
+
+    # 503, not 200-with-a-sad-field. Both probes use `curl -fsS`, which fails
+    # on status and reads no body — so a container whose database was gone
+    # reported healthy and served 500s. The body still names the dependency.
+    if database != "ok":
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {"status": "degraded", "database": database},
+        )
+
+    return {
+        "status": "ok",
+        "database": database,
+        "email": "configured" if settings.email_configured else "not configured",
+        "storage": "configured" if settings.firebase_configured else "not configured",
+    }

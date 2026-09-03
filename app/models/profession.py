@@ -5,7 +5,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -22,6 +22,13 @@ class Profession(Base):
     hint: Mapped[str | None] = mapped_column(String(160))
     position: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # The profession-wide default for which public fields its professionals
+    # show, as keys from app/domain/visibility.py. Null means "no opinion":
+    # everyone in the profession falls back to the module default. A
+    # professional's own list, when set, wins over this one in either
+    # direction — showing a field this hides, or hiding one it shows.
+    visible_fields: Mapped[list[str] | None] = mapped_column(ARRAY(String))
 
     fields: Mapped[list["ProfessionField"]] = relationship(
         cascade="all, delete-orphan",
