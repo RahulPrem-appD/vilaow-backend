@@ -53,15 +53,34 @@ FIELD_KEYS: tuple[str, ...] = (
     "details",
     "license",        # the licence number — on the record, off the page until switched on
     "vat_number",     # the VAT / ΑΦΜ, likewise
+    # The three trust badges on a listing card — Licensed, Insured,
+    # Interviewed. Each is a claim somebody at Vilaow has to have made about
+    # this one professional, so each rides its own key and each is off by
+    # default (see OFF_BY_DEFAULT below): a badge shows when a staff member
+    # ticks it for the record, and not before. No column sits behind a key —
+    # the ticked key is itself the fact — which is why public.py publishes
+    # these as the badge words rather than as a value it withheld or sent.
+    "badge_licensed",
+    "badge_insured",
+    "badge_interviewed",
 )
 
-# Every key except the two columns that have never been published. Derived
-# from FIELD_KEYS rather than written out, so the default cannot drift from
-# the vocabulary: a key added later starts switched off, and a database where
-# nobody has touched either column keeps publishing exactly what it published
-# before any of this existed. `license` and `vat_number` are on the record;
-# they reach a buyer only when somebody deliberately turns them on.
-DEFAULT_VISIBLE: frozenset[str] = frozenset(FIELD_KEYS) - {"license", "vat_number"}
+# The keys that are switched off until somebody deliberately switches them
+# on. Named once, here, because the reason is one reason: these are the keys
+# that have never been shown, and must not start showing because somebody
+# added them to a list. `license` and `vat_number` are columns that predate
+# the lever; the three badge keys are claims a staff member has to make about
+# a professional before the card may print them.
+OFF_BY_DEFAULT: frozenset[str] = frozenset({
+    "license", "vat_number",
+    "badge_licensed", "badge_insured", "badge_interviewed",
+})
+
+# Every key except those. Derived from FIELD_KEYS rather than written out, so
+# the default cannot drift from the vocabulary: a key added later starts
+# switched off, and a database where nobody has touched either column keeps
+# publishing exactly what it published before any of this existed.
+DEFAULT_VISIBLE: frozenset[str] = frozenset(FIELD_KEYS) - OFF_BY_DEFAULT
 
 _KNOWN: frozenset[str] = frozenset(FIELD_KEYS)
 

@@ -10,9 +10,9 @@ The tests below pin the properties it must not lose:
   * a record nobody has touched publishes exactly what it published before the
     columns existed — the guarantee the whole change rests on, asserted first.
   * withholding is the only direction it moves in. It changes no other field
-    and never turns a None into a value; the one thing it can publish that was
-    not published before, a licence number, needs its key switched on
-    deliberately.
+    and never turns a None into a value; the things it can publish that were
+    not published before — a licence number, a trust badge — need their key
+    switched on deliberately.
   * a field left out is left out everywhere at once. A rating kept off the
     profile but printed in the directory would be a half-measure.
   * the decision itself stays staff-facing: never in a public response, while
@@ -26,7 +26,13 @@ from datetime import datetime, timezone
 import pytest
 
 from app.domain.errors import Invalid
-from app.domain.visibility import DEFAULT_VISIBLE, FIELD_KEYS, resolve, validate
+from app.domain.visibility import (
+    DEFAULT_VISIBLE,
+    FIELD_KEYS,
+    OFF_BY_DEFAULT,
+    resolve,
+    validate,
+)
 from app.models import FieldType, Profession, Professional, ProfessionField, Review, Stage
 
 # Every field the page can carry, dressed — so "everything else unchanged" can
@@ -224,6 +230,76 @@ def test_the_two_numbers_never_reach_a_listing_card(client, db, professions, key
     assert key not in card(client)
 
 
+# ── the three trust badges ───────────────────────────────────────────────────
+def test_a_record_nobody_has_decided_about_publishes_no_badges(client, db, professions):
+    """The three badge keys are in OFF_BY_DEFAULT, so an untouched record —
+    and every record already sitting in the database — publishes an empty
+    list, on the card and the profile alike: the badges were claims made for
+    everyone until now, and this change makes none of them."""
+    _reviewed(db, professions, **FULL)
+
+    assert profile(client)["badges"] == []
+    assert card(client)["badges"] == []
+
+
+def test_switching_a_badge_on_publishes_its_word_and_moves_nothing_else(
+    client, db, professions,
+):
+    """The lever's narrow guarantee, held for the badges too: a ticked key
+    adds its one word to the payload and changes nothing else about the
+    record, byte for byte."""
+    _reviewed(db, professions, slug="undecided", **FULL)
+    _reviewed(db, professions, slug="badged",
+              visible_fields=[*_showing(), "badge_licensed"], **FULL)
+
+    a, b = profile(client, "undecided"), profile(client, "badged")
+    assert b["badges"] == ["licensed"]
+    assert card(client, "badged")["badges"] == ["licensed"]
+    for compared in (a, b):
+        del compared["badges"], compared["slug"]
+    assert b == a
+
+
+def test_all_three_badges_publish_in_the_cards_order_not_the_stored_one(
+    client, db, professions,
+):
+    """The stored order is an accident of how the list was written; the card
+    prints its own. `validate` would impose it on the way in, but a list
+    written straight to the column must not be able to reorder the page."""
+    _reviewed(db, professions,
+              visible_fields=["badge_interviewed", *_showing(),
+                              "badge_insured", "badge_licensed"],
+              **FULL)
+
+    assert profile(client)["badges"] == ["licensed", "insured", "interviewed"]
+    assert card(client)["badges"] == ["licensed", "insured", "interviewed"]
+
+
+def test_a_profession_can_turn_a_badge_on_and_a_record_still_wins(
+    client, db, professions,
+):
+    """The badges ride the same two levels as every other key. A trade can
+    grant one across the board, and one professional can still decide the
+    other way — dropping a badge its trade granted, or claiming one it
+    did not."""
+    granted = db.get(Profession, professions["lawyer"])
+    granted.visible_fields = [*DEFAULT_VISIBLE, "badge_insured"]
+    withheld = db.get(Profession, professions["engineer"])
+    withheld.visible_fields = list(DEFAULT_VISIBLE)
+    db.commit()
+
+    _reviewed(db, professions, slug="follows", **FULL)
+    _reviewed(db, professions, slug="opts-out",
+              visible_fields=list(DEFAULT_VISIBLE), **FULL)
+    _reviewed(db, professions, slug="opts-in",
+              profession_id=professions["engineer"],
+              visible_fields=[*DEFAULT_VISIBLE, "badge_licensed"], **FULL)
+
+    assert card(client, "follows")["badges"] == ["insured"]
+    assert card(client, "opts-out")["badges"] == []
+    assert card(client, "opts-in")["badges"] == ["licensed"]
+
+
 # ── the profession's list, and who wins ─────────────────────────────────────
 def test_a_professions_list_governs_a_professional_who_has_none_of_its_own(
     client, db, professions,
@@ -291,11 +367,18 @@ def test_an_empty_list_shows_nothing_and_is_not_read_as_inheritance(
 
 def test_the_decision_itself_never_appears_in_a_public_response(client, db, professions):
     """Which fields a buyer does not see is an editorial decision, not
-    something a buyer needs to read."""
-    _reviewed(db, professions, visible_fields=_showing("bio", "rating"), **FULL)
+    something a buyer needs to read. The badges are the one effect that does
+    travel — and they travel as their own words, never as the keys or the
+    list that chose them."""
+    _reviewed(db, professions,
+              visible_fields=[*_showing("bio", "rating"), "badge_licensed"], **FULL)
 
-    assert "visible_fields" not in profile(client)
-    assert "visible_fields" not in card(client)
+    r, item = profile(client), card(client)
+    assert "visible_fields" not in r
+    assert "visible_fields" not in item
+    assert r["badges"] == item["badges"] == ["licensed"]
+    assert "badge_licensed" not in r
+    assert "badge_licensed" not in item
 
 
 # ── writing the list ────────────────────────────────────────────────────────
@@ -390,8 +473,14 @@ def test_validate_names_the_first_key_outside_the_vocabulary():
     assert "witchcraft" in str(raised.value)
 
 
-def test_the_default_is_everything_except_the_two_never_published():
-    """If this stops being true, an untouched database changes what it shows
-    the day the change deploys — the one thing this design promised not to
-    do."""
-    assert DEFAULT_VISIBLE == frozenset(FIELD_KEYS) - frozenset(("license", "vat_number"))
+def test_the_default_is_everything_except_the_never_shown():
+    """The reason OFF_BY_DEFAULT exists, pinned by name: these are the keys
+    that have never been shown and must not start showing because somebody
+    added them to a list. If this stops being true, an untouched database
+    changes what it shows the day the change deploys — the one thing this
+    design promised not to do."""
+    assert OFF_BY_DEFAULT == frozenset((
+        "license", "vat_number",
+        "badge_licensed", "badge_insured", "badge_interviewed",
+    ))
+    assert frozenset(FIELD_KEYS) - DEFAULT_VISIBLE == OFF_BY_DEFAULT

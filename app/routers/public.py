@@ -15,7 +15,10 @@ Three rules hold everywhere in this file:
     profile alike, because hidden in one place and shown in the other would be
     a half-measure. The decision itself never travels in a response: which
     fields a buyer does not see is an editorial matter, not something a buyer
-    needs to read.
+    needs to read. The badges are the one effect of that decision which
+    legitimately does reach a buyer — a badge is itself the public claim — and
+    even they arrive as plain words in `badges`, never as the keys or the
+    list that chose them.
 """
 from __future__ import annotations
 
@@ -85,6 +88,11 @@ class PublicCard(BaseModel):
     # "Verified by Vilaow · 2026". It was already on the record and simply not
     # sent, so the directory could not draw the chip his design has.
     verified_year: int | None = None
+    # The trust badges this record may print, as their public words — one per
+    # badge_* key in the resolved visible set, and an empty list when none is
+    # switched on. The badge keys carry no column: the ticked key is itself
+    # the fact, so the word is all there is to publish.
+    badges: list[str] = []
 
 
 class PublicProfile(PublicCard):
@@ -134,6 +142,23 @@ def _visible(p: Professional) -> frozenset[str]:
     )
 
 
+# The three badge keys and the words they publish, in the order the card
+# prints them. A badge key has no column behind it — the ticked key is the
+# whole of the fact — so publishing one is turning the key into its word
+# here, and this table is the only place that happens.
+_TRUST_BADGES: tuple[tuple[str, str], ...] = (
+    ("badge_licensed", "licensed"),
+    ("badge_insured", "insured"),
+    ("badge_interviewed", "interviewed"),
+)
+
+
+def _badges(visible: frozenset[str]) -> list[str]:
+    """The badge words this record may print, in the card's order — never the
+    order the keys happened to be stored in."""
+    return [word for key, word in _TRUST_BADGES if key in visible]
+
+
 def _card(p: Professional, visible: frozenset[str]) -> dict:
     # The public name is the person if we have one, the firm otherwise. His
     # spreadsheet lists businesses, and a buyer wants to know who they will
@@ -161,6 +186,7 @@ def _card(p: Professional, visible: frozenset[str]) -> dict:
         "years": p.years if "years" in visible else None,
         "languages": p.languages if "languages" in visible else None,
         "verified_year": p.verified_year if "verified_year" in visible else None,
+        "badges": _badges(visible),
     }
 
 
