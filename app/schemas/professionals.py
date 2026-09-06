@@ -102,16 +102,23 @@ class ProfessionalListResponse(ORMModel):
 
 class ProfessionalUpdate(ORMModel):
     """Editable profile fields. Stage, assignment, publish state and the call
-    stamp all have dedicated endpoints and are deliberately absent here, as
-    are rating/review_count/source — those come from the import, not a staff
-    edit.
+    stamp all have dedicated endpoints and are deliberately absent here.
 
-    `rating_captured_on` is the one exception, and it is here because it is not
-    an imported value at all: it is a caller saying when they checked the
-    listing. The public page will not publish the imported figure without it,
-    so a caller who has just looked at Google needs a way to say so. Clearing
-    it back to null withdraws the Google figure and returns the page to the
-    rating computed from review rows.
+    The Google trio — `rating`, `review_count` and `rating_captured_on` — is
+    editable, and that is a change from when the first two arrived only with
+    the import. A Google listing moves: the score drifts and the count climbs,
+    and a caller who has just looked at it is the only person in a position to
+    say what it reads now. Refusing the edit did not keep the figure honest, it
+    only kept it old.
+
+    `source` stays out. It says which platform the number came from, and a
+    caller retyping a Google figure is not changing that.
+
+    All three travel together or the page publishes none of them: a score
+    needs the count that sizes it and the day somebody read it. Clearing the
+    date withdraws the Google figure and returns the page to the rating
+    computed from the review rows, which are a separate thing entirely and are
+    not touched by any of this.
     """
 
     business_name: str | None = None
@@ -133,6 +140,12 @@ class ProfessionalUpdate(ORMModel):
     license: str | None = None
     vat_number: str | None = None
     verified_year: int | None = None
+
+    # Bounded here rather than trusted from the form. The public profile
+    # quotes all three, and a stray 49 in the score box would print "49 out
+    # of 5" under a professional's name.
+    rating: float | None = Field(default=None, ge=0, le=5)
+    review_count: int | None = Field(default=None, ge=0)
     rating_captured_on: date | None = None
 
     subrole: str | None = None
