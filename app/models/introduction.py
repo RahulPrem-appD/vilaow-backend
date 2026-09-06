@@ -49,7 +49,10 @@ class Introduction(Base):
 
     buyer_name: Mapped[str] = mapped_column(String(160))
     buyer_email: Mapped[str] = mapped_column(String(255))
-    buyer_phone: Mapped[str | None] = mapped_column(String(60))
+    # Required, like it is on Lead. The professional is being asked to ring
+    # this person back, and an introduction that arrives without a number is
+    # one the professional cannot act on.
+    buyer_phone: Mapped[str] = mapped_column(String(60))
     message: Mapped[str | None] = mapped_column(Text)
 
     consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

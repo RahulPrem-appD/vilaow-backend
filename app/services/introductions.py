@@ -56,7 +56,7 @@ class IntroductionRequest:
     slug: str
     buyer_name: str
     buyer_email: str
-    buyer_phone: str | None
+    buyer_phone: str
     message: str | None
     source_page: str | None
     consent: bool
@@ -106,7 +106,7 @@ class IntroductionService:
             city=professional.city,
             buyer_name=req.buyer_name.strip(),
             buyer_email=req.buyer_email.strip().lower(),
-            buyer_phone=(req.buyer_phone or "").strip() or None,
+            buyer_phone=req.buyer_phone.strip(),
             message=(req.message or "").strip() or None,
             consent_at=now,
             consent_text=CONSENT_TEXT,

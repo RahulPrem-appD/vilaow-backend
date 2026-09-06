@@ -16,7 +16,10 @@ class IntroductionCreate(ORMModel):
     slug: str
     buyer_name: str = Field(min_length=1, max_length=160)
     buyer_email: str = Field(min_length=3, max_length=255)
-    buyer_phone: str | None = Field(default=None, max_length=60)
+    # Required. His form asks for it and the professional rings rather than
+    # writes, so an introduction without a number is a dead end. Bounded the
+    # same way Lead's is, which is the other place a buyer types a phone in.
+    buyer_phone: str = Field(min_length=1, max_length=60)
     message: str | None = Field(default=None, max_length=2000)
     source_page: str | None = Field(default=None, max_length=255)
 
@@ -43,7 +46,7 @@ class IntroductionOut(ORMModel):
     city: str | None
     buyer_name: str
     buyer_email: str
-    buyer_phone: str | None
+    buyer_phone: str
     message: str | None
     consent_at: datetime | None
     source_page: str | None
