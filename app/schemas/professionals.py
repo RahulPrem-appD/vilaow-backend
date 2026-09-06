@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -49,6 +49,7 @@ class ProfessionalOut(ORMModel):
     rating: float | None
     review_count: int | None
     source: str | None
+    rating_captured_on: date | None
 
     stage: Stage
     assigned_to_id: int | None
@@ -103,7 +104,15 @@ class ProfessionalUpdate(ORMModel):
     """Editable profile fields. Stage, assignment, publish state and the call
     stamp all have dedicated endpoints and are deliberately absent here, as
     are rating/review_count/source — those come from the import, not a staff
-    edit."""
+    edit.
+
+    `rating_captured_on` is the one exception, and it is here because it is not
+    an imported value at all: it is a caller saying when they checked the
+    listing. The public page will not publish the imported figure without it,
+    so a caller who has just looked at Google needs a way to say so. Clearing
+    it back to null withdraws the Google figure and returns the page to the
+    rating computed from review rows.
+    """
 
     business_name: str | None = None
     contact_name: str | None = None
@@ -124,6 +133,7 @@ class ProfessionalUpdate(ORMModel):
     license: str | None = None
     vat_number: str | None = None
     verified_year: int | None = None
+    rating_captured_on: date | None = None
 
     subrole: str | None = None
     coverage: str | None = None

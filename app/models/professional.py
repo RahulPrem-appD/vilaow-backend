@@ -4,9 +4,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -60,14 +62,19 @@ class Professional(Base):
 
     # As imported from his spreadsheet: stars, a count, and where they came
     # from. His generator fills {gstars} and {gcount} and his review blocks
-    # read "via Google". Kept as the record of what the listing showed at
-    # import — staff still read them — but no longer published: the public
-    # rating is computed from the review rows (app/routers/public.py), because
-    # attribution is what makes showing another platform's numbers legitimate
-    # and these three could say 33 while two reviews existed.
+    # read "via Google". These went unpublished for a long while, because the
+    # import carried whatever the spreadsheet said and a profile could claim 33
+    # reviews while showing two — a number nobody can account for.
     rating: Mapped[float | None] = mapped_column()
     review_count: Mapped[int | None] = mapped_column(Integer)
     source: Mapped[str | None] = mapped_column(String(80))
+    # The day somebody actually read the two numbers above off the listing.
+    # That date is what makes them accountable, so it is also what lets them be
+    # published: with it the public page shows the real Google figure and says
+    # when it was true, without it nothing changes and the rating is still
+    # computed from the review rows (app/routers/public.py). Nullable, because
+    # every imported record predates it.
+    rating_captured_on: Mapped[date | None] = mapped_column(Date)
 
     stage: Mapped[Stage] = mapped_column(Enum(Stage, name="pipeline_stage"), default=Stage.imported, index=True)
     assigned_to_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id"), index=True)
