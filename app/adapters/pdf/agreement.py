@@ -37,6 +37,41 @@ LINE = HexColor("#e3e2d6")
 PAGE_W, PAGE_H = A4
 MARGIN = 20 * mm
 
+# ── the wordmark ────────────────────────────────────────────────────────────
+# Resolved beside this module rather than from a configured path: the file ships
+# with the package, and the container copies the tree wholesale, so the only
+# thing that can move it is a code change. The font block above reaches out to
+# the host because fonts belong to the host; this does not.
+#
+# 480x240, so the box below keeps 2:1. Sized to sit at about the weight of the
+# 17pt wordmark it replaced.
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "vilaow-logo.png")
+
+# Read off the asset rather than written down. His logo arrived as ink floating
+# in a wide white field, and it was trimmed to the ink — so the ratio is not the
+# 480x240 of the file he sent, and a number typed here would have squashed it
+# the next time the asset was recropped.
+#
+# The height is 0.84 of the 17pt type this replaced, which is where the mark's
+# ink lands at the weight the old wordmark had. Pillow is not a dependency of
+# this service, so the PNG header is read directly: width and height are two
+# big-endian 32-bit integers at a fixed offset in the IHDR chunk.
+def _png_ratio(path: str, fallback: float = 390 / 94) -> float:
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(24)
+        if head[:8] != b"\x89PNG\r\n\x1a\n":
+            return fallback
+        width = int.from_bytes(head[16:20], "big")
+        height = int.from_bytes(head[20:24], "big")
+        return width / height if height else fallback
+    except OSError:
+        return fallback
+
+
+LOGO_H = 17 * 0.84
+LOGO_W = LOGO_H * _png_ratio(LOGO_PATH)
+
 # ── fonts ───────────────────────────────────────────────────────────────────
 # Helvetica is one of reportlab's built-in Type 1 faces, and it has no Greek.
 # On a Greek directory that is not cosmetic: an unaccented name came through,
@@ -288,6 +323,28 @@ def _wrap(s: str, font: str, size: float, width: float, c: pdfcanvas.Canvas) -> 
     return out
 
 
+def _draw_wordmark(c: pdfcanvas.Canvas, y: float) -> None:
+    """The logo at the top of the page, falling back to the word it replaced.
+
+    A missing or unreadable file must not cost anybody their copy of a signed
+    agreement, so the failure is a header that says "vilaow" in type — which is
+    what this was until his logo arrived, and reads perfectly well.
+
+    `y` is the text baseline the rest of the header sits on. The image is
+    dropped slightly below it so its middle lands near the middle of the type
+    beside it rather than its baseline.
+    """
+    try:
+        c.drawImage(LOGO_PATH, MARGIN, y - 5, width=LOGO_W, height=LOGO_H,
+                    mask="auto", preserveAspectRatio=True, anchor="sw")
+        return
+    except Exception:                         # noqa: BLE001 — never fail the document
+        pass
+    c.setFont(BODY_BOLD, 17)
+    c.setFillColor(AEGEAN)
+    c.drawString(MARGIN, y, "vilaow")
+
+
 def render(agreement: Agreement, professional: Professional) -> bytes:
     buf = BytesIO()
     c = pdfcanvas.Canvas(buf, pagesize=A4, pageCompression=1)
@@ -295,9 +352,7 @@ def render(agreement: Agreement, professional: Professional) -> bytes:
     sheet = _Sheet(c)
 
     # ── header ──────────────────────────────────────────────────────────────
-    c.setFont(BODY_BOLD, 17)
-    c.setFillColor(AEGEAN)
-    c.drawString(MARGIN, sheet.y, "vilaow")
+    _draw_wordmark(c, sheet.y)
     c.setFont(BODY, 9)
     c.setFillColor(MUTED)
     c.drawRightString(PAGE_W - MARGIN, sheet.y, "Free listing")
