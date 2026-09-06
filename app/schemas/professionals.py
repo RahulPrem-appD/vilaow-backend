@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -49,7 +49,6 @@ class ProfessionalOut(ORMModel):
     rating: float | None
     review_count: int | None
     source: str | None
-    rating_captured_on: date | None
 
     stage: Stage
     assigned_to_id: int | None
@@ -104,21 +103,19 @@ class ProfessionalUpdate(ORMModel):
     """Editable profile fields. Stage, assignment, publish state and the call
     stamp all have dedicated endpoints and are deliberately absent here.
 
-    The Google trio — `rating`, `review_count` and `rating_captured_on` — is
-    editable, and that is a change from when the first two arrived only with
-    the import. A Google listing moves: the score drifts and the count climbs,
-    and a caller who has just looked at it is the only person in a position to
-    say what it reads now. Refusing the edit did not keep the figure honest, it
-    only kept it old.
+    `rating` and `review_count` are editable, which is a change from when they
+    arrived only with the import. A Google listing moves: the score drifts and
+    the count climbs, and a caller who has just looked at it is the only person
+    in a position to say what it reads now. Refusing the edit did not keep the
+    figure honest, it only kept it old.
 
     `source` stays out. It says which platform the number came from, and a
     caller retyping a Google figure is not changing that.
 
-    All three travel together or the page publishes none of them: a score
-    needs the count that sizes it and the day somebody read it. Clearing the
-    date withdraws the Google figure and returns the page to the rating
-    computed from the review rows, which are a separate thing entirely and are
-    not touched by any of this.
+    The two travel together or the page publishes neither: a score needs the
+    count that sizes it. Clear them and the page returns to the rating computed
+    from the review rows, which are a separate thing entirely and are not
+    touched by any of this.
     """
 
     business_name: str | None = None
@@ -146,7 +143,6 @@ class ProfessionalUpdate(ORMModel):
     # of 5" under a professional's name.
     rating: float | None = Field(default=None, ge=0, le=5)
     review_count: int | None = Field(default=None, ge=0)
-    rating_captured_on: date | None = None
 
     subrole: str | None = None
     coverage: str | None = None

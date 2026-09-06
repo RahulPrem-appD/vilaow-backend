@@ -1,13 +1,13 @@
 """Google reviews entered by staff, and the rating the rows add up to.
 
-Two halves of one change, proved together because either alone is half a
-promise. A signed-in caller can now type in a rating copied from a
-professional's public listing — the only kind of review nothing could create
-before — and the public rating is computed from the rows the database holds
-rather than read off the columns the import scraped. The second half is what
-makes the first safe: a profile can no longer claim 33 reviews while showing
-two, because the published number is the average of real rows and nothing
-else moves it.
+A signed-in caller can type in a rating copied from a professional's public
+listing, and where a record has no Google summary of its own the public
+rating is computed from those rows: their average, their count, their source.
+
+That fallback is what this file is about. The summary columns take priority
+over it — see test_google_rating_edit.py — so the fixtures here deliberately
+leave them empty. A test about what the rows add up to should not also be
+carrying a number that would win.
 """
 from __future__ import annotations
 
@@ -17,15 +17,16 @@ from app.models import Event, Professional, Review, ReviewKind, Stage
 
 
 def _pro(db, professions, **kw):
-    # The scraped columns are set on every fixture, exactly as the import left
-    # them, so the tests that expect them to be ignored are ignoring something
-    # real rather than an empty column.
+    # No rating or review_count here. A record carrying a Google summary
+    # publishes it instead of averaging its rows, so a fixture that set one
+    # would be testing the other path in every test below. `source` stays: it
+    # is where the scraped figure came from and it publishes nothing by itself.
     base = dict(
         business_name="Papadopoulos & Partners",
         contact_name="Kostas Papadopoulos",
         city="Heraklion", region="Crete",
         profession_id=professions["lawyer"],
-        rating=4.8, review_count=33, source="Google Maps",
+        source="Google Maps",
     )
     base.update(kw)
     p = Professional(**base)
@@ -98,11 +99,12 @@ def test_two_google_reviews_average_to_one_decimal(client, db, professions):
     assert profile["review_count"] == 2
 
 
-# ── the scraped columns no longer publish ───────────────────────────────────
-def test_columns_without_rows_publish_nothing(client, db, professions):
-    """The behaviour the whole change is for. The import left rating=4.8,
-    review_count=33 and source="Google Maps" on the record, and the page used
-    to print all three while rendering none of the reviews behind them."""
+# ── a record with no summary of its own ─────────────────────────────────────
+def test_a_record_with_neither_summary_nor_rows_publishes_no_rating(
+    client, db, professions,
+):
+    """Nothing to average and nothing typed, so the page prints no stars at
+    all rather than an empty rating."""
     _published(db, professions)
 
     profile = client.get("/api/public/professionals/kostas-papadopoulos").json()
@@ -116,10 +118,21 @@ def test_columns_without_rows_publish_nothing(client, db, professions):
     assert listing["rating_source"] is None
 
 
-def test_the_admin_still_sees_the_scraped_columns(as_caller, client, db, professions):
-    """They are the record of what the listing showed when it was imported,
-    not a number to publish."""
-    p = _published(db, professions)
+def test_a_summary_publishes_over_the_rows_beneath_it(client, db, professions):
+    """The priority, stated here as well as in test_google_rating_edit.py,
+    because this is the file whose fixtures depend on knowing it."""
+    p = _published(db, professions, rating=4.8, review_count=33)
+    _google(db, p, 4)
+
+    profile = client.get("/api/public/professionals/kostas-papadopoulos").json()
+    assert profile["rating"] == 4.8
+    assert profile["review_count"] == 33
+    assert profile["rating_source"] == "Google"
+    assert len(profile["reviews"]) == 1
+
+
+def test_the_admin_sees_the_summary_columns(as_caller, client, db, professions):
+    p = _published(db, professions, rating=4.8, review_count=33)
     r = as_caller.get(f"/api/professionals/{p.id}")
     assert r.status_code == 200, r.text
     assert r.json()["rating"] == 4.8

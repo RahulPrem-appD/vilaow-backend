@@ -98,7 +98,9 @@ def test_the_direct_phone_number_is_never_published(client, db, professions):
 
 # ── attribution ─────────────────────────────────────────────────────────────
 def test_a_rating_always_carries_its_source(client, db, professions):
-    p = _published(db, professions)
+    # No summary on this one: a record carrying one publishes it instead of
+    # averaging its rows, and these two tests are about the rows.
+    p = _published(db, professions, rating=None, review_count=None)
     db.add(Review(professional_id=p.id, author="G.", stars=5, source="via Google"))
     db.commit()
     item = client.get("/api/public/professionals").json()["items"][0]
@@ -110,8 +112,8 @@ def test_a_rating_always_carries_its_source(client, db, professions):
 def test_a_rating_with_no_source_is_withheld(client, db, professions):
     """Publishing another platform's number without saying whose it is would be
     wrong, so a review that carries no provenance does not lend its stars to
-    the average — even though the imported columns beside it say otherwise."""
-    p = _published(db, professions)
+    the average."""
+    p = _published(db, professions, rating=None, review_count=None)
     db.add(Review(professional_id=p.id, author="G.", stars=5, source=None))
     db.commit()
     item = client.get("/api/public/professionals").json()["items"][0]

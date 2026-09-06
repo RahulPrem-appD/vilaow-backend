@@ -8,8 +8,7 @@ forgotten field is a data leak, so there is no shared schema to forget.
 
 Three rules hold everywhere in this file:
   * only published records are visible, ever
-  * a rating is never returned without the source it came from, and an
-    imported Google figure is never returned without the date it was read
+  * a rating is never returned without the source it came from
   * a field is returned only when its key is visible for that record
     (app/domain/visibility.py: the professional's own list, else its
     profession's, else the default) — absent from the listing card and the
@@ -21,17 +20,15 @@ Three rules hold everywhere in this file:
     even they arrive as plain words in `badges`, never as the keys or the
     list that chose them.
 
-A published rating has two possible origins. When a record carries the whole
-imported Google set — the stars, the review count and `rating_captured_on`, the
-day someone read them off the listing — that is what the page shows, attributed
-to "Google" and dated. When any of the three is missing the rating is computed
-from the review rows this site holds, exactly as it was before, and no date
-goes out with it. Either way the `rating` visibility key gates the whole set,
-and no number travels without an attribution.
+A published rating has two possible origins. When a record carries the Google
+summary — a score and the number of people behind it, both typed by a caller
+reading the listing — that is what the page shows, attributed to "Google".
+With either missing, the rating is computed from the review rows this site
+holds instead. Either way the `rating` visibility key gates the whole set, and
+no number travels without an attribution.
 """
 from __future__ import annotations
 
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -98,7 +95,6 @@ class PublicCard(BaseModel):
     # computed from our own review rows has the rows themselves behind it and
     # needs no separate date. The card carries it as well as the profile, so
     # the directory can date the same number it prints.
-    rating_captured_on: date | None = None
     years: int | None = None
     languages: list[str] | None = None
     # The year Vilaow vetted them, which his card prints as
@@ -206,38 +202,36 @@ def _card(p: Professional, visible: frozenset[str]) -> dict:
     }
 
 
-def _imported_rating(
-    p: Professional,
-) -> tuple[float | None, int | None, str | None, date | None]:
-    """The Google figure as imported, when there is a date standing behind it.
+def _typed_rating(p: Professional) -> tuple[float | None, int | None, str | None]:
+    """The Google summary a caller typed onto the record.
 
     These columns were withheld from public pages for a long time, and the
-    reason was sound: the import carried whatever the spreadsheet said, so a
-    record could claim 33 reviews while the page showed two, and stars nobody
-    can account for should not be printed. The missing piece was never the
-    number, it was the day someone read it. `rating_captured_on` supplies that,
-    so the whole set is published together or not at all — the buyer sees the
-    figure Google shows and can see how old it is.
+    reason was sound then: they arrived with the import, carrying whatever the
+    spreadsheet said, so a record could claim 33 reviews while the page showed
+    two. What changed is who puts them there. A caller reads the listing and
+    types what it says, which is the same act as copying any other field on
+    the record, and the profile shows it the way Google does.
 
-    A review count of zero is treated as missing rather than published. "4.9
-    from 0 reviews" is not something anybody read off a listing.
+    Both or neither. A score with no count is a number with nothing sizing it,
+    and a count with no score is not a rating at all. A count of zero is
+    treated as missing too: "4.9 from 0 reviews" is not something anybody read
+    off a listing.
     """
-    if p.rating is None or not p.review_count or p.rating_captured_on is None:
-        return None, None, None, None
-    return round(float(p.rating), 1), p.review_count, "Google", p.rating_captured_on
+    if p.rating is None or not p.review_count:
+        return None, None, None
+    return round(float(p.rating), 1), p.review_count, "Google"
 
 
 def _published_rating(
     p: Professional, count: int | None, average: float | None, sources: list[str | None],
-) -> tuple[float | None, int | None, str | None, date | None]:
-    """The rating, its count, its attribution, and the date behind it if any.
+) -> tuple[float | None, int | None, str | None]:
+    """The rating, its count and its attribution.
 
-    The complete imported set wins, because it is the figure the buyer would
-    find on Google themselves and the profile is meant to show that rather than
-    a tally of whoever happened to be typed in here. Everything below it is the
-    older rule, unchanged, and it still runs for every record without a capture
-    date: the rating is computed from the review rows this site holds, and no
-    date goes out with it.
+    The typed summary wins, because it is the figure the buyer would find on
+    Google themselves and the profile is meant to show that rather than a tally
+    of whoever happened to be typed in here. Everything below it is the older
+    rule, unchanged, and it still runs for every record without one: the rating
+    is computed from the review rows this site holds.
 
     The file's standing rule decides the empty cases: a number never travels
     without saying whose it is. With no rows there is no number, and with rows
@@ -252,38 +246,37 @@ def _published_rating(
     sitting beside sourced ones is a record to correct rather than a case to
     model here.
     """
-    imported = _imported_rating(p)
-    if imported[0] is not None:
-        return imported
+    typed = _typed_rating(p)
+    if typed[0] is not None:
+        return typed
     if not count or average is None:
-        return None, None, None, None
+        return None, None, None
     attributed = sorted({s for s in sources if s})
     if not attributed:
-        return None, None, None, None
+        return None, None, None
     if len(attributed) == 1:
         source = attributed[0]
     else:
         # Two provenances in one average. Naming only one would let the other
         # platform's stars pass as the named one's, so the page says both.
         source = "Google and Vilaow buyers"
-    return round(average, 1), count, source, None
+    return round(average, 1), count, source
 
 
 def _visible_rating(
     visible: frozenset[str], p: Professional, count: int | None, average: float | None,
     sources: list[str | None],
-) -> tuple[float | None, int | None, str | None, date | None]:
+) -> tuple[float | None, int | None, str | None]:
     """The published rating, or nothing at all when `rating` is not visible.
 
-    Blanket rather than partial on purpose: the stars, the count, the
-    attribution and the capture date are one claim, so one key takes all of
-    them and never leaves a number standing without the count that sizes it,
-    the source that legitimises it or the date that ages it. Both readers go
-    through here so the listing and the profile cannot drift apart on what a
-    hidden rating means.
+    Blanket rather than partial on purpose: the stars, the count and the
+    attribution are one claim, so one key takes all three and never leaves a
+    number standing without the count that sizes it or the source that
+    legitimises it. Both readers go through here so the listing and the profile
+    cannot drift apart on what a hidden rating means.
     """
     if "rating" not in visible:
-        return None, None, None, None
+        return None, None, None
     return _published_rating(p, count, average, sources)
 
 
@@ -413,8 +406,8 @@ def list_professionals(
     for p, average, count, sources in rows:
         visible = _visible(p)
         card = _card(p, visible)
-        (card["rating"], card["review_count"], card["rating_source"],
-         card["rating_captured_on"]) = _visible_rating(
+        (card["rating"], card["review_count"],
+         card["rating_source"]) = _visible_rating(
             visible, p, count, float(average) if average is not None else None, sources or []
         )
         items.append(card)
@@ -444,7 +437,7 @@ def get_professional(slug: str, db: Session = Depends(get_db)):
     # because the rows are already loaded for the page below. It is only used
     # when the record has no imported Google figure to publish instead, which
     # is _published_rating's decision rather than this call site's.
-    rating, review_count, rating_source, rating_captured_on = _visible_rating(
+    rating, review_count, rating_source = _visible_rating(
         visible, p,
         len(reviews),
         sum(r.stars for r in reviews) / len(reviews) if reviews else None,
@@ -470,7 +463,6 @@ def get_professional(slug: str, db: Session = Depends(get_db)):
         rating=rating,
         review_count=review_count,
         rating_source=rating_source,
-        rating_captured_on=rating_captured_on,
         subrole=p.subrole if "subrole" in visible else None,
         coverage=p.coverage if "coverage" in visible else None,
         bio=p.bio if "bio" in visible else None,
