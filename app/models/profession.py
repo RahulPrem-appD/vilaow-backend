@@ -30,6 +30,17 @@ class Profession(Base):
     # direction — showing a field this hides, or hiding one it shows.
     visible_fields: Mapped[list[str] | None] = mapped_column(ARRAY(String))
 
+    # What a professional of this trade may say they do, and how many of it
+    # they may show. A caller ticks from the list during the onboarding call
+    # and the answers land in professionals.specialties — see
+    # app/domain/specializations.py for why the column kept its old name.
+    #
+    # Null on both is "no opinion": the trade has no list, so the box behaves
+    # as it always did and takes whatever is typed. That is the state a newly
+    # added profession starts in, not a gap to be closed.
+    specializations: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+    max_specializations: Mapped[int | None] = mapped_column(Integer)
+
     fields: Mapped[list["ProfessionField"]] = relationship(
         cascade="all, delete-orphan",
         order_by="ProfessionField.position",

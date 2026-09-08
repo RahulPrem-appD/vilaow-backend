@@ -7,3 +7,6 @@ __pycache__/
 # FIREBASE_BUCKET is unset — profile photos and licence scans. Real identity
 # documents must never end up in the repository.
 .uploads/
+
+# The ledger scripts/map_specialties.py writes: real records, not source.
+specialties-before-mapping.json

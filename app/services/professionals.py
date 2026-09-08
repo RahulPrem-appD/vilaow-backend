@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.domain.errors import Conflict, Invalid, NotFound
 from app.domain.fields import validate_custom
 from app.domain.publishing import Readiness
+from app.domain.specializations import clean as clean_specializations
 from app.domain.visibility import validate
 from app.models import Event, Profession, Professional, Review, ReviewKind, Stage, Staff
 from app.ports.clock import Clock
@@ -140,6 +141,11 @@ class ProfessionalService:
             # question costs a phone call, and the alternative silently
             # publishes something a professional gave in confidence.
             professional.custom = {}
+            # And the services with them. "Golden Visa" is a lawyer's; an
+            # architect who inherited it would be publishing a claim nobody
+            # made about them, and the vocabulary check below would not catch
+            # it because nothing in this request mentions specialties.
+            professional.specialties = None
 
         # Owner-defined answers go through the field definitions rather than
         # being written straight to the column: a value that does not satisfy
@@ -159,6 +165,20 @@ class ProfessionalService:
                     errors=[{"key": e.key, "detail": e.message} for e in errors],
                 )
             professional.custom = merged
+
+        # The services a professional lists are their trade's vocabulary, so
+        # they are checked against the trade rather than stored as sent — the
+        # same reason `custom` above goes through its field definitions. A
+        # profession with no list of its own takes whatever arrives, which is
+        # how a newly added trade keeps working before anyone writes its list.
+        if "specialties" in data:
+            target_id = data.get("profession_id", professional.profession_id)
+            trade = self._db.get(Profession, target_id) if target_id else None
+            data["specialties"] = clean_specializations(
+                data["specialties"],
+                trade.specializations if trade else None,
+                trade.max_specializations if trade else None,
+            )
 
         # The visibility list is closed vocabulary, so it goes through
         # validate rather than being stored as typed: an unknown key raises
