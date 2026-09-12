@@ -53,27 +53,33 @@ FIELD_KEYS: tuple[str, ...] = (
     "details",
     "license",        # the licence number — on the record, off the page until switched on
     "vat_number",     # the VAT / ΑΦΜ, likewise
-    # The three trust badges on a listing card — Licensed, Insured,
-    # Interviewed. Each is a claim somebody at Vilaow has to have made about
-    # this one professional, so each rides its own key and each is off by
-    # default (see OFF_BY_DEFAULT below): a badge shows when a staff member
-    # ticks it for the record, and not before. No column sits behind a key —
-    # the ticked key is itself the fact — which is why public.py publishes
-    # these as the badge words rather than as a value it withheld or sent.
+    # The trust badges on a listing card — Licensed, Insured, Interviewed,
+    # and International clients, which he asked for on 12 September. Each is a
+    # claim somebody at Vilaow has to have made about this one professional,
+    # so each rides its own key and each is off by default (see OFF_BY_DEFAULT
+    # below): a badge shows when a staff member ticks it for the record, and
+    # not before. No column sits behind a key — the ticked key is itself the
+    # fact — which is why public.py publishes these as the badge words rather
+    # than as a value it withheld or sent.
+    #
+    # The order here is the order the card prints them, and the card prints
+    # three, folding anything past that into a "+1" it opens on hover. So a
+    # badge added below this line is the one a card folds first.
     "badge_licensed",
     "badge_insured",
     "badge_interviewed",
+    "badge_international",
 )
 
 # The keys that are switched off until somebody deliberately switches them
 # on. Named once, here, because the reason is one reason: these are the keys
 # that have never been shown, and must not start showing because somebody
 # added them to a list. `license` and `vat_number` are columns that predate
-# the lever; the three badge keys are claims a staff member has to make about
-# a professional before the card may print them.
+# the lever; the badge keys are claims a staff member has to make about a
+# professional before the card may print them.
 OFF_BY_DEFAULT: frozenset[str] = frozenset({
     "license", "vat_number",
-    "badge_licensed", "badge_insured", "badge_interviewed",
+    "badge_licensed", "badge_insured", "badge_interviewed", "badge_international",
 })
 
 # Every key except those. Derived from FIELD_KEYS rather than written out, so

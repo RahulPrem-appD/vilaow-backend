@@ -155,14 +155,15 @@ def _visible(p: Professional) -> frozenset[str]:
     )
 
 
-# The three badge keys and the words they publish, in the order the card
-# prints them. A badge key has no column behind it — the ticked key is the
-# whole of the fact — so publishing one is turning the key into its word
-# here, and this table is the only place that happens.
+# The badge keys and the words they publish, in the order the card prints
+# them. A badge key has no column behind it — the ticked key is the whole of
+# the fact — so publishing one is turning the key into its word here, and this
+# table is the only place that happens.
 _TRUST_BADGES: tuple[tuple[str, str], ...] = (
     ("badge_licensed", "licensed"),
     ("badge_insured", "insured"),
     ("badge_interviewed", "interviewed"),
+    ("badge_international", "international"),
 )
 
 

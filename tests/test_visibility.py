@@ -232,7 +232,7 @@ def test_the_two_numbers_never_reach_a_listing_card(client, db, professions, key
 
 # ── the three trust badges ───────────────────────────────────────────────────
 def test_a_record_nobody_has_decided_about_publishes_no_badges(client, db, professions):
-    """The three badge keys are in OFF_BY_DEFAULT, so an untouched record —
+    """The badge keys are all in OFF_BY_DEFAULT, so an untouched record —
     and every record already sitting in the database — publishes an empty
     list, on the card and the profile alike: the badges were claims made for
     everyone until now, and this change makes none of them."""
@@ -260,19 +260,23 @@ def test_switching_a_badge_on_publishes_its_word_and_moves_nothing_else(
     assert b == a
 
 
-def test_all_three_badges_publish_in_the_cards_order_not_the_stored_one(
+def test_every_badge_publishes_in_the_cards_order_not_the_stored_one(
     client, db, professions,
 ):
     """The stored order is an accident of how the list was written; the card
     prints its own. `validate` would impose it on the way in, but a list
-    written straight to the column must not be able to reorder the page."""
+    written straight to the column must not be able to reorder the page.
+
+    All four of them here, International clients last — which is the one the
+    card folds away when every badge on a record is ticked."""
     _reviewed(db, professions,
-              visible_fields=["badge_interviewed", *_showing(),
-                              "badge_insured", "badge_licensed"],
+              visible_fields=["badge_international", "badge_interviewed",
+                              *_showing(), "badge_insured", "badge_licensed"],
               **FULL)
 
-    assert profile(client)["badges"] == ["licensed", "insured", "interviewed"]
-    assert card(client)["badges"] == ["licensed", "insured", "interviewed"]
+    printed = ["licensed", "insured", "interviewed", "international"]
+    assert profile(client)["badges"] == printed
+    assert card(client)["badges"] == printed
 
 
 def test_a_profession_can_turn_a_badge_on_and_a_record_still_wins(
@@ -482,5 +486,6 @@ def test_the_default_is_everything_except_the_never_shown():
     assert OFF_BY_DEFAULT == frozenset((
         "license", "vat_number",
         "badge_licensed", "badge_insured", "badge_interviewed",
+        "badge_international",
     ))
     assert frozenset(FIELD_KEYS) - DEFAULT_VISIBLE == OFF_BY_DEFAULT
