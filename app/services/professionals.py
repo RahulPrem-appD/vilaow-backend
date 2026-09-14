@@ -40,6 +40,12 @@ class ProfessionalFilters:
     assigned_to_id: int | None = None
     needs_attention: bool = False
     q: str | None = None
+    # Not a stage, and deliberately a question of its own. Publishing is a
+    # switch an owner throws, not the end of the pipeline: a record can sit at
+    # "signed" for weeks before it goes live, and stay live while a caller
+    # rings it about something else. Asking the two separately is what lets the
+    # worklist show "signed but not published" — the people waiting to go live.
+    published: bool | None = None
 
 
 class ProfessionalService:
@@ -66,6 +72,8 @@ class ProfessionalService:
             stmt = stmt.where(Professional.profession_id == filters.profession_id)
         if filters.assigned_to_id is not None:
             stmt = stmt.where(Professional.assigned_to_id == filters.assigned_to_id)
+        if filters.published is not None:
+            stmt = stmt.where(Professional.published.is_(filters.published))
         if filters.q:
             like = f"%{filters.q}%"
             stmt = stmt.where(or_(

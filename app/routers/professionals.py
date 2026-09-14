@@ -44,6 +44,10 @@ def list_professionals(
         description="Published profiles missing a required answer for their profession",
     ),
     q: str | None = None,
+    published: bool | None = Query(
+        None,
+        description="True for profiles on the site, False for those not, omitted for both",
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> ProfessionalListResponse:
@@ -51,6 +55,7 @@ def list_professionals(
         ProfessionalFilters(
             stage=stage, region=region, city=city, profession_id=profession_id,
             assigned_to_id=assigned_to_id, needs_attention=needs_attention, q=q,
+            published=published,
         ),
         limit=limit, offset=offset,
     )

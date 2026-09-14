@@ -253,3 +253,32 @@ def test_a_field_cannot_be_edited_through_another_profession(as_owner, db, profe
     r = as_owner.patch(f"/api/professions/{professions['agent']}/fields/{f.id}",
                        json={"label": "Hijacked"})
     assert r.status_code == 404
+
+
+# ── the listing's own question about publishing ─────────────────────────────
+def test_the_listing_can_be_asked_what_is_on_the_site(as_owner, db, professions):
+    """Published is not a stage, and the worklist has to be able to ask about
+    it on its own.
+
+    This is the gap that let the dashboard read "Signed: 0" while six profiles
+    were live on the site: every count there was a stage count, and publishing
+    is a switch an owner throws separately. The two questions also have to
+    combine — "signed but not published" is the list of people waiting to go
+    live, and it cannot be asked any other way.
+    """
+    _pro(db, professions, slug="live-one", published=True, stage=Stage.signed)
+    _pro(db, professions, slug="live-two", published=True, stage=Stage.signed)
+    _pro(db, professions, stage=Stage.signed)      # signed, waiting to go live
+    _pro(db, professions, stage=Stage.imported)
+
+    def total(query: str) -> int:
+        response = as_owner.get(f"/api/professionals?limit=1&{query}")
+        assert response.status_code == 200, response.text
+        return response.json()["total"]
+
+    assert total("") == 4
+    assert total("published=true") == 2
+    assert total("published=false") == 2
+    # Asked together, not instead of each other.
+    assert total("stage=signed&published=false") == 1
+    assert total("stage=signed&published=true") == 2
