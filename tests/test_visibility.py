@@ -267,7 +267,7 @@ def test_every_badge_publishes_in_the_cards_order_not_the_stored_one(
     prints its own. `validate` would impose it on the way in, but a list
     written straight to the column must not be able to reorder the page.
 
-    All four of them here, International clients last — which is the one the
+    All four of them here, Global Clients last — which is the one the
     card folds away when every badge on a record is ticked."""
     _reviewed(db, professions,
               visible_fields=["badge_international", "badge_interviewed",

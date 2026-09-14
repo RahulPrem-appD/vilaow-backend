@@ -54,7 +54,7 @@ FIELD_KEYS: tuple[str, ...] = (
     "license",        # the licence number — on the record, off the page until switched on
     "vat_number",     # the VAT / ΑΦΜ, likewise
     # The trust badges on a listing card — Licensed, Insured, Interviewed,
-    # and International clients, which he asked for on 12 September. Each is a
+    # and Global Clients, which he asked for on 12 September. Each is a
     # claim somebody at Vilaow has to have made about this one professional,
     # so each rides its own key and each is off by default (see OFF_BY_DEFAULT
     # below): a badge shows when a staff member ticks it for the record, and
@@ -70,6 +70,10 @@ FIELD_KEYS: tuple[str, ...] = (
     "badge_interviewed",
     "badge_international",
 )
+# The label on that last one reads "Global Clients" — he renamed it on
+# 14 September. The key and the word it publishes stay `international` on
+# purpose: both are stored on every record that has it ticked, so chasing a
+# label change through them would orphan the ticks staff have already made.
 
 # The keys that are switched off until somebody deliberately switches them
 # on. Named once, here, because the reason is one reason: these are the keys
