@@ -121,6 +121,10 @@ def test_an_untouched_record_publishes_what_it_publishes_today(client, db, profe
     for key, value in FULL.items():
         if key in ("license", "vat_number"):
             assert r[key] is None, key
+        elif key == "verified_year":
+            # The year is a column the page no longer prints; what the key
+            # publishes is the flag, on by default.
+            assert r["verified"] is True
         else:
             assert r[key] == value, key
     assert r["rating"] == 5.0
@@ -133,7 +137,9 @@ def test_an_untouched_record_publishes_what_it_publishes_today(client, db, profe
     assert item["photo"] == FULL["photo"]
     assert item["years"] == FULL["years"]
     assert item["languages"] == FULL["languages"]
-    assert item["verified_year"] == FULL["verified_year"]
+    # The badge is the key alone now, and it is on by default.
+    assert item["verified"] is True
+    assert item["subrole"] == FULL["subrole"]
     assert item["rating"] == 5.0
     assert item["review_count"] == 1
     assert item["rating_source"] == "via Google"
@@ -198,14 +204,21 @@ def test_omitting_costs_blanks_the_table_and_its_note_together(client, db, profe
 
 
 # ── the card carries less, and withholds the same ───────────────────────────
-@pytest.mark.parametrize("key", ["photo", "years", "languages", "verified_year"])
+@pytest.mark.parametrize("key, field, withheld", [
+    ("photo", "photo", None),
+    ("years", "years", None),
+    ("languages", "languages", None),
+    ("subrole", "subrole", None),
+    # The badge is a flag rather than a value, so withheld it reads False.
+    ("verified_year", "verified", False),
+])
 def test_a_card_field_left_out_is_absent_from_the_card_and_the_profile(
-    client, db, professions, key,
+    client, db, professions, key, field, withheld,
 ):
     _published(db, professions, visible_fields=_showing(key), **FULL)
 
-    assert card(client)[key] is None
-    assert profile(client)[key] is None
+    assert card(client)[field] is withheld
+    assert profile(client)[field] is withheld
 
 
 # ── the two columns that were never published ────────────────────────────────
@@ -353,6 +366,9 @@ def test_an_empty_list_shows_nothing_and_is_not_read_as_inheritance(
 
     r = profile(client)
     for key in FULL:
+        if key == "verified_year":
+            assert r["verified"] is False
+            continue
         assert r[key] is None, key
     assert r["rating"] is None
     assert r["review_count"] is None

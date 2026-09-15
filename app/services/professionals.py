@@ -18,6 +18,7 @@ from app.domain.errors import Conflict, Invalid, NotFound
 from app.domain.fields import validate_custom
 from app.domain.publishing import Readiness
 from app.domain.specializations import clean as clean_specializations
+from app.domain.subroles import clean as clean_subrole
 from app.domain.visibility import validate
 from app.models import Event, Profession, Professional, Review, ReviewKind, Stage, Staff
 from app.ports.clock import Clock
@@ -154,6 +155,10 @@ class ProfessionalService:
             # made about them, and the vocabulary check below would not catch
             # it because nothing in this request mentions specialties.
             professional.specialties = None
+            # The sub-role goes with them, for the same reason: "Real Estate
+            # Lawyer" is a lawyer's title, and an architect carrying it would
+            # be a claim nobody made.
+            professional.subrole = None
 
         # Owner-defined answers go through the field definitions rather than
         # being written straight to the column: a value that does not satisfy
@@ -186,6 +191,15 @@ class ProfessionalService:
                 data["specialties"],
                 trade.specializations if trade else None,
                 trade.max_specializations if trade else None,
+            )
+
+        # The sub-role is the same shape of rule with a single answer: chosen
+        # from the trade's list when the trade has one, typed when it does not.
+        if "subrole" in data:
+            target_id = data.get("profession_id", professional.profession_id)
+            trade = self._db.get(Profession, target_id) if target_id else None
+            data["subrole"] = clean_subrole(
+                data["subrole"], trade.subroles if trade else None,
             )
 
         # The visibility list is closed vocabulary, so it goes through

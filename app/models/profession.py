@@ -41,6 +41,13 @@ class Profession(Base):
     specializations: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     max_specializations: Mapped[int | None] = mapped_column(Integer)
 
+    # The one-line title under a professional's name — "Foreign Buyer
+    # Specialist", "Real Estate Lawyer" — chosen from this list rather than
+    # typed. One per professional, so it is a dropdown where the services are
+    # tick boxes. Null is "no list": the box takes whatever is typed, which is
+    # where a newly added trade starts. See app/domain/subroles.py.
+    subroles: Mapped[list[str] | None] = mapped_column(ARRAY(String))
+
     fields: Mapped[list["ProfessionField"]] = relationship(
         cascade="all, delete-orphan",
         order_by="ProfessionField.position",

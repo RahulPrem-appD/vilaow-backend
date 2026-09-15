@@ -154,3 +154,64 @@ def test_a_trade_seeded_with_no_list_reads_back_as_none(as_owner, db, profession
     architect = next(row for row in rows if row["key"] == "architect")
     assert architect["specializations"] is None
     assert architect["max_specializations"] is None
+
+
+# ── the sub-role: one title, from the trade's list ──────────────────────────
+def _with_subroles(db, professions, key, titles):
+    trade = db.get(Profession, professions[key])
+    trade.subroles = titles
+    db.commit()
+    return trade
+
+
+def test_a_sub_role_outside_the_trades_list_is_refused(as_owner, db, professions):
+    """The record editor offers only the list, so anything else arriving is a
+    stale value or a request made around the form — and either would put a
+    title on a public profile that nobody chose from anything."""
+    _with_subroles(db, professions, "lawyer", ["Real Estate Lawyer", "Litigation"])
+    pro = _pro(db, professions)
+
+    refused = as_owner.patch(f"/api/professionals/{pro.id}", json={"subrole": "Wizard"})
+    assert refused.status_code == 422, refused.text
+    assert "Wizard" in refused.json()["detail"]
+
+    accepted = as_owner.patch(f"/api/professionals/{pro.id}", json={"subrole": "Litigation"})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["subrole"] == "Litigation"
+
+    cleared = as_owner.patch(f"/api/professionals/{pro.id}", json={"subrole": ""})
+    assert cleared.status_code == 200
+    assert cleared.json()["subrole"] is None
+
+
+def test_a_trade_with_no_list_still_takes_whatever_is_typed(as_owner, db, professions):
+    """Not a gap: it is what lets the owner add a trade without inventing its
+    titles in the same breath."""
+    pro = _pro(db, professions)  # the seeded trade has no sub-role list
+    r = as_owner.patch(f"/api/professionals/{pro.id}", json={"subrole": "Anything at all"})
+    assert r.status_code == 200, r.text
+    assert r.json()["subrole"] == "Anything at all"
+
+
+def test_moving_trade_drops_the_sub_role(as_owner, db, professions):
+    """"Real Estate Lawyer" is a lawyer's title. An architect carrying it would
+    be publishing a claim nobody made."""
+    _with_subroles(db, professions, "lawyer", ["Real Estate Lawyer"])
+    pro = _pro(db, professions, subrole="Real Estate Lawyer")
+
+    moved = as_owner.patch(
+        f"/api/professionals/{pro.id}", json={"profession_id": professions["engineer"]}
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["subrole"] is None
+
+
+def test_the_trade_publishes_its_sub_role_list(as_owner, db, professions):
+    _with_subroles(db, professions, "lawyer", ["Real Estate Lawyer", "Litigation"])
+    listed = as_owner.get("/api/professions").json()
+    lawyer = next(t for t in listed if t["key"] == "lawyer")
+    assert lawyer["subroles"] == ["Real Estate Lawyer", "Litigation"]
+
+    edited = as_owner.patch(f"/api/professions/{lawyer['id']}", json={"subroles": ["Litigation"]})
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["subroles"] == ["Litigation"]

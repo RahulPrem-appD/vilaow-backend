@@ -97,10 +97,15 @@ class PublicCard(BaseModel):
     # the directory can date the same number it prints.
     years: int | None = None
     languages: list[str] | None = None
-    # The year Vilaow vetted them, which his card prints as
-    # "Verified by Vilaow · 2026". It was already on the record and simply not
-    # sent, so the directory could not draw the chip his design has.
-    verified_year: int | None = None
+    # The one-line title under the name — "Real Estate Lawyer". On the card
+    # since 15 September, in bold under the trade, at his ask.
+    subrole: str | None = None
+    # "Verified by Vilaow", and nothing after it. This carried a year, and the
+    # chip printed it — which meant the badge needed a year typed into the
+    # record before it would show, a second control nobody could find. He
+    # asked for the tag alone; so this is the `verified_year` key on its own,
+    # a flag like the other badges, and the year column behind it is retired.
+    verified: bool = False
     # The trust badges this record may print, as their public words — one per
     # badge_* key in the resolved visible set, and an empty list when none is
     # switched on. The badge keys carry no column: the ticked key is itself
@@ -109,7 +114,6 @@ class PublicCard(BaseModel):
 
 
 class PublicProfile(PublicCard):
-    subrole: str | None = None
     coverage: str | None = None
     bio: str | None = None
     specialties: list[str] | None = None
@@ -198,7 +202,8 @@ def _card(p: Professional, visible: frozenset[str]) -> dict:
         "initials": _initials(name),
         "years": p.years if "years" in visible else None,
         "languages": p.languages if "languages" in visible else None,
-        "verified_year": p.verified_year if "verified_year" in visible else None,
+        "subrole": p.subrole if "subrole" in visible else None,
+        "verified": "verified_year" in visible,
         "badges": _badges(visible),
     }
 
@@ -464,7 +469,6 @@ def get_professional(slug: str, db: Session = Depends(get_db)):
         rating=rating,
         review_count=review_count,
         rating_source=rating_source,
-        subrole=p.subrole if "subrole" in visible else None,
         coverage=p.coverage if "coverage" in visible else None,
         bio=p.bio if "bio" in visible else None,
         specialties=p.specialties if "specialties" in visible else None,

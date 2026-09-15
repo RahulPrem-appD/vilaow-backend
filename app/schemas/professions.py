@@ -20,6 +20,9 @@ class ProfessionOut(ORMModel):
     # may show. Null on both is "no list": the box takes whatever is typed.
     specializations: list[str] | None
     max_specializations: int | None
+    # The trade's list of sub-roles — the one-line title under a name — which
+    # the record editor turns into a dropdown. Null is "no list".
+    subroles: list[str] | None
 
 class ProfessionCreate(ORMModel):
     key: str
@@ -31,6 +34,7 @@ class ProfessionCreate(ORMModel):
     visible_fields: list[str] | None = None
     specializations: list[str] | None = None
     max_specializations: int | None = None
+    subroles: list[str] | None = None
 
 class ProfessionUpdate(ORMModel):
     key: str | None = None
@@ -42,3 +46,4 @@ class ProfessionUpdate(ORMModel):
     visible_fields: list[str] | None = None
     specializations: list[str] | None = None
     max_specializations: int | None = None
+    subroles: list[str] | None = None
