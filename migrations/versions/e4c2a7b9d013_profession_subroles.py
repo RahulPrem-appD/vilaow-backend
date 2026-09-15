@@ -52,7 +52,9 @@ SEED: dict[str, list[str]] = {
         "Landscape Architecture",
     ],
     "engineer": [
-        "Civil Engineering",
+        # His list said "Civil Engineering", which under the trade "Civil
+        # engineer" says nothing twice. Rahul chose "General" over dropping it.
+        "General Civil Engineering",
         "Structural Inspection",
         "Structural Design",
         "Land Surveying & Cadastre",
