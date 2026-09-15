@@ -10,3 +10,7 @@ __pycache__/
 
 # The ledger scripts/map_specialties.py writes: real records, not source.
 specialties-before-mapping.json
+
+# Ledgers the mapping scripts write before they change anything: a
+# record of real people's data, kept beside the run, never committed.
+*-before-mapping.json
