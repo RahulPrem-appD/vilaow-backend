@@ -43,6 +43,7 @@ FULL = dict(
     photo="https://example.com/kostas.jpg",
     subrole="Conveyancing lawyer",
     coverage="All of Crete",
+    areas_served=["Heraklion", "Agios Nikolaos & Elounda"],
     verified_year=2025,
     bio="Fifteen years of purchases and title checks.",
     languages=["English", "Greek"],
@@ -156,6 +157,16 @@ def test_omitting_bio_blanks_bio_and_touches_nothing_else(client, db, profession
     for compared in (a, b):
         del compared["bio"], compared["slug"]
     assert b == a
+
+
+def test_omitting_coverage_hides_both_the_legacy_note_and_structured_areas(
+    client, db, professions,
+):
+    _reviewed(db, professions, visible_fields=_showing("coverage"), **FULL)
+
+    result = profile(client)
+    assert result["coverage"] is None
+    assert result["areas_served"] is None
 
 
 # ── the rating, and the words under it ───────────────────────────────────────

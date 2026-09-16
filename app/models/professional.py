@@ -105,10 +105,13 @@ class Professional(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_year: Mapped[int | None] = mapped_column(Integer)
 
-    # The rest of what his profile template renders: {subrole}, {coverage},
-    # {cost_html}/{cost_note}, {faq_html}.
+    # The rest of what his profile template renders. `coverage` is the legacy
+    # free-text answer and remains stored while callers move records to the
+    # fixed, multi-select `areas_served` list. Office location itself stays in
+    # city/region; where somebody works is a separate fact.
     subrole: Mapped[str | None] = mapped_column(String(160))
     coverage: Mapped[str | None] = mapped_column(String(160))
+    areas_served: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     cost_note: Mapped[str | None] = mapped_column(Text)
     costs: Mapped[list | None] = mapped_column(JSONB, default=list)
     faq: Mapped[list | None] = mapped_column(JSONB, default=list)

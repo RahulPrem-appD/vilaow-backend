@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.domain.areas_served import clean as clean_areas_served
 from app.domain.errors import Conflict, Invalid, NotFound
 from app.domain.fields import validate_custom
 from app.domain.publishing import Readiness
@@ -201,6 +202,12 @@ class ProfessionalService:
             data["subrole"] = clean_subrole(
                 data["subrole"], trade.subroles if trade else None,
             )
+
+        # Areas served are shared across trades and come from one fixed list.
+        # Cleaning here keeps every write path (plain edit and recorded call)
+        # on the same vocabulary and in the same public display order.
+        if "areas_served" in data:
+            data["areas_served"] = clean_areas_served(data["areas_served"])
 
         # The visibility list is closed vocabulary, so it goes through
         # validate rather than being stored as typed: an unknown key raises

@@ -164,6 +164,68 @@ def test_highlights_are_stored_by_a_plain_edit(as_caller, db, professions):
     assert p.highlights == ["Fixed fee", "Callback in 24h"]
 
 
+# ── office location and areas served ───────────────────────────────────────
+def test_selected_areas_are_canonical_on_the_profile_not_the_listing(
+    as_caller, client, db, professions,
+):
+    """Office location already lives in city/region. Areas served are a
+    separate, fixed-vocabulary list: staff may choose them in any order, but
+    the public profile receives one stable order with duplicates removed.
+    Directory cards do not carry the profile-only list.
+
+    The old free-text coverage value stays stored during the migration. It is
+    not rewritten merely because staff save the new structured field.
+    """
+    p = _published(db, professions, coverage="All of Crete")
+
+    response = as_caller.patch(
+        f"/api/professionals/{p.id}",
+        json={
+            "areas_served": [
+                "Sitia & East Crete",
+                "Heraklion",
+                "Central Athens",
+                "Heraklion",
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["areas_served"] == [
+        "Central Athens",
+        "Heraklion",
+        "Sitia & East Crete",
+    ]
+    assert response.json()["coverage"] == "All of Crete"
+
+    profile = client.get("/api/public/professionals/kostas-papadopoulos").json()
+    assert profile["areas_served"] == [
+        "Central Athens",
+        "Heraklion",
+        "Sitia & East Crete",
+    ]
+
+    card = client.get("/api/public/professionals").json()["items"][0]
+    assert "areas_served" not in card
+
+
+def test_an_area_outside_the_fixed_vocabulary_is_refused(
+    as_caller, db, professions,
+):
+    p = _pro(db, professions)
+
+    response = as_caller.patch(
+        f"/api/professionals/{p.id}",
+        json={"areas_served": ["Somewhere else"]},
+    )
+
+    assert response.status_code == 422, response.text
+    assert "Somewhere else" in response.text
+
+    db.refresh(p)
+    assert p.areas_served is None
+
+
 # ── filters ─────────────────────────────────────────────────────────────────
 def test_filtering_by_region(client, db, professions):
     _published(db, professions)

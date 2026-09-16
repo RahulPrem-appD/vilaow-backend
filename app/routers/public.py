@@ -114,6 +114,11 @@ class PublicCard(BaseModel):
 
 
 class PublicProfile(PublicCard):
+    # Structured replacement for the old free-text coverage sentence. It uses
+    # the existing `coverage` visibility decision so current records and
+    # profession defaults do not need a second migration just to keep showing
+    # the same category of information.
+    areas_served: list[str] | None = None
     coverage: str | None = None
     bio: str | None = None
     specialties: list[str] | None = None
@@ -469,6 +474,7 @@ def get_professional(slug: str, db: Session = Depends(get_db)):
         rating=rating,
         review_count=review_count,
         rating_source=rating_source,
+        areas_served=p.areas_served if "coverage" in visible else None,
         coverage=p.coverage if "coverage" in visible else None,
         bio=p.bio if "bio" in visible else None,
         specialties=p.specialties if "specialties" in visible else None,

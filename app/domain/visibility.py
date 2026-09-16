@@ -31,7 +31,10 @@ from app.domain.errors import Invalid
 FIELD_KEYS: tuple[str, ...] = (
     "photo",          # the headshot, on the card and the profile alike
     "subrole",        # the line under the name — "Conveyancing lawyer"
-    "coverage",       # where they work — "All of Crete"
+    # The structured Areas Served list. The legacy key remains because it is
+    # already stored in record/profession decisions; it gates the old coverage
+    # note too while staggered frontend/backend deploys remain possible.
+    "coverage",
     "verified_year",  # the "Verified by Vilaow · 2026" chip
     "bio",            # the paragraph about them
     "languages",      # the languages they work in
@@ -128,4 +131,3 @@ def validate(keys: Iterable[str]) -> list[str]:
             raise Invalid(f"Unknown field to publish: '{key}'")
     wanted = set(keys)
     return [key for key in FIELD_KEYS if key in wanted]
-

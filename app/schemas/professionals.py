@@ -72,6 +72,7 @@ class ProfessionalOut(ORMModel):
 
     subrole: str | None
     coverage: str | None
+    areas_served: list[str] | None
     cost_note: str | None
     costs: list[Any] | None
     faq: list[Any] | None
@@ -146,6 +147,7 @@ class ProfessionalUpdate(ORMModel):
 
     subrole: str | None = None
     coverage: str | None = None
+    areas_served: list[str] | None = None
     cost_note: str | None = None
     costs: list[Any] | None = None
     faq: list[Any] | None = None
