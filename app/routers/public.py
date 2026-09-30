@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import distinct, func, select
+from sqlalchemy import String, cast, distinct, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -361,6 +361,13 @@ def list_professionals(
     # on a public endpoint was an unhandled 500 rather than a 422.
     limit: int = Query(24, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    # Bounded to a Postgres int4 for the same reason `limit` is bounded: the
+    # homepage picks the seed, so anything outside that range did not come
+    # from it and gets a 422 rather than whatever the query would make of it.
+    seed: int | None = Query(
+        None, ge=0, le=2_147_483_647,
+        description="shuffle the listing; the same seed gives the same order",
+    ),
     db: Session = Depends(get_db),
 ):
     stmt = select(Professional).where(Professional.published.is_(True))
@@ -393,6 +400,32 @@ def list_professionals(
         func.array_agg(distinct(Review.source)).label("sources"),
     ).group_by(Review.professional_id).subquery()
 
+    if seed is None:
+        # Ordered by the number the buyer sees, not the imported column that
+        # used to stand in for it; `id` keeps the order stable when averages
+        # tie or are missing entirely. This is the order for everything that
+        # is not the homepage — the dashboard's count, the test suites walking
+        # the listing — which want one order, not a new one per request.
+        #
+        # Visibility deliberately does not reach this ORDER BY, so a
+        # professional whose rating is hidden still sorts by the same average
+        # as everyone else. Where a record sits on the page is not a number
+        # the page prints; the order is not a published claim.
+        order = (per_professional.c.average.desc().nullslast(), Professional.id)
+    else:
+        # The homepage's order. Sorted by rating, the same few held the top of
+        # the page on every visit and everyone below them got no leads, so the
+        # client asked for a random order. md5 of "seed:id" is a hash, so each
+        # seed deals a different hand — and a pure function, so the same seed
+        # deals the same hand again. The second half is what paging needs:
+        # page 2 is a separate request and has to continue page 1, not
+        # reshuffle and show some people twice and others never. `random()`
+        # does the first half and not the second.
+        order = (
+            func.md5(cast(literal(f"{seed}:"), String) + cast(Professional.id, String)),
+            Professional.id,
+        )
+
     rows = db.execute(
         stmt.add_columns(
             per_professional.c.average,
@@ -401,15 +434,7 @@ def list_professionals(
         )
         .outerjoin(per_professional,
                    per_professional.c.professional_id == Professional.id)
-        # Ordered by the number the buyer sees, not the imported column that
-        # used to stand in for it; `id` keeps the order stable when averages
-        # tie or are missing entirely.
-        #
-        # Visibility deliberately does not reach this ORDER BY, so a
-        # professional whose rating is hidden still sorts by the same average
-        # as everyone else. Where a record sits on the page is not a number
-        # the page prints; the order is not a published claim.
-        .order_by(per_professional.c.average.desc().nullslast(), Professional.id)
+        .order_by(*order)
         .limit(limit).offset(offset)
     ).all()
 
