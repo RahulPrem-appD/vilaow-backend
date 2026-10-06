@@ -32,7 +32,10 @@ from app.ports.email import EmailSender
 from app.ports.storage import StorageBackend
 
 if TYPE_CHECKING:  # imported lazily below to keep the graph acyclic
+    import anthropic
+
     from app.services.agreements import AgreementService
+    from app.services.assistant import Assistant
     from app.services.assets import AssetService
     from app.services.introductions import IntroductionService, VerifiedReviewService
     from app.services.professionals import ProfessionalService
@@ -171,5 +174,35 @@ def get_profession_service(db: DbDep) -> "ProfessionService":
 
 
 ProfessionServiceDep = Annotated["ProfessionService", Depends(get_profession_service)]
+
+
+@lru_cache
+def _anthropic(api_key: str) -> "anthropic.Anthropic":
+    """One client per key, for the same reason as the Firebase one above.
+
+    Sixty seconds of silence ends a request: an answer streams in well under
+    that, and a visitor should hear "try again" rather than wait on a hung
+    connection.
+    """
+    import anthropic
+
+    return anthropic.Anthropic(api_key=api_key, timeout=anthropic.Timeout(60.0, connect=10.0))
+
+
+def get_assistant(settings: SettingsDep) -> "Assistant":
+    from fastapi import HTTPException, status
+
+    from app.db import SessionLocal
+    from app.services.assistant import Assistant
+
+    # Refused before a client is built: there is no key to build one with.
+    if not settings.assistant_configured:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The assistant is not switched on.")
+    return Assistant(_anthropic(settings.anthropic_api_key), SessionLocal,
+                     model=settings.assistant_model, effort=settings.assistant_effort)
+
+
+AssistantDep = Annotated["Assistant", Depends(get_assistant)]
 
 StaffDep = Annotated[Staff, Depends(current_staff)]

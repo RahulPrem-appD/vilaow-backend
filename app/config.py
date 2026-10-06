@@ -88,6 +88,34 @@ class Settings(BaseSettings):
     firebase_credentials_file: str = ""
     firebase_credentials_json: str = ""
 
+    # The website assistant (app/services/assistant.py). Off unless a key is
+    # set, and deliberately not in validate_for_production below: the site
+    # works without it, so a missing key turns the chat off rather than
+    # stopping the API.
+    anthropic_api_key: str = ""
+    assistant_model: str = "claude-opus-5-5"
+    # How hard the model thinks before it answers. "low" keeps a chat reply
+    # quick and cheap; the answers come from the site's own guides, which the
+    # model has in front of it, so they rarely need more.
+    assistant_effort: str = "low"
+    # While the assistant is a preview for the client, every message needs this
+    # code: the API is on the open internet and each answer is paid for. Set
+    # ASSISTANT_PUBLIC=true to drop the code once it launches.
+    assistant_access_code: str = ""
+    assistant_public: bool = False
+
+    @property
+    def assistant_configured(self) -> bool:
+        """Can the assistant answer anyone at all?
+
+        A key, and either a code to check or a deliberate decision to need
+        none. A key on its own is not enough: forgetting the code would open
+        a paid endpoint to everyone, so that combination stays off.
+        """
+        return bool(self.anthropic_api_key) and (
+            self.assistant_public or bool(self.assistant_access_code)
+        )
+
     @property
     def firebase_configured(self) -> bool:
         return bool(self.firebase_bucket)

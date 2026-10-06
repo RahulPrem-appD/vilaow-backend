@@ -98,9 +98,13 @@ def fresh_rate_limits():
     tests/test_hardening.py exercises it deliberately — without letting one
     test's attempts count against the next.
     """
-    from app.api.throttle import lead_submissions, login_attempts
+    from app.api.throttle import (
+        assistant_code_attempts, assistant_daily, assistant_messages,
+        assistant_site_daily, lead_submissions, login_attempts,
+    )
 
-    for window in (login_attempts, lead_submissions):
+    for window in (login_attempts, lead_submissions, assistant_messages,
+                   assistant_daily, assistant_site_daily, assistant_code_attempts):
         window._hits.clear()
     yield
 

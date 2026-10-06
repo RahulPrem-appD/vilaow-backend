@@ -22,6 +22,7 @@ dependencies = [
     "reportlab>=4.2",
     "sqlalchemy>=2.0.51",
     "uvicorn[standard]>=0.52.1",
+    "anthropic>=1.0",
 ]
 
 [dependency-groups]

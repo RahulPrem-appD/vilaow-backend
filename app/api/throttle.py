@@ -1,4 +1,4 @@
-"""A small in-process rate limiter for the two public endpoints that write.
+"""A small in-process rate limiter for the public endpoints that write or spend.
 
 Deliberately in memory and deliberately modest. It exists because the login
 endpoint had no limit of any kind — an internet-facing form where an attacker
@@ -85,3 +85,14 @@ login_attempts = SlidingWindow(limit=5, window=60.0)
 # The public callback form. The introduction form already had a cap; this one
 # had none, so the caller worklist could be flooded by anyone with a script.
 lead_submissions = SlidingWindow(limit=5, window=60.0 * 60.0)
+
+# The website assistant. Every message is a paid call to Anthropic, so these
+# cap the bill as much as they stop abuse. Twenty messages in ten minutes is a
+# brisk conversation; nobody types more than that by hand.
+assistant_messages = SlidingWindow(limit=20, window=10 * 60.0)
+assistant_daily = SlidingWindow(limit=150, window=24 * 60 * 60.0)
+# All visitors together. A backstop, not a budget: the real ceiling is the
+# monthly spend limit on the Anthropic account.
+assistant_site_daily = SlidingWindow(limit=1000, window=24 * 60 * 60.0)
+# Wrong access codes, like wrong passwords.
+assistant_code_attempts = SlidingWindow(limit=5, window=60.0)
