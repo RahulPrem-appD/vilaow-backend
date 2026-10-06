@@ -34,6 +34,9 @@ class AgreementPublicProfessional(ORMModel):
     # So the form can say "we already have this" instead of demanding a second
     # copy of a photo the caller took down over the phone.
     photo: str | None = None
+    # The same for the licence, by name only: the file itself is owner-only,
+    # and a signing link is not an owner.
+    licence_filename: str | None = None
 
 class AgreementPublicOut(ORMModel):
     terms_version: str

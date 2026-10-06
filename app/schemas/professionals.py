@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from app.models import Stage
+from app.schemas.assets import AssetOut
 from app.schemas.common import ORMModel
 from app.schemas.professions import ProfessionOut
 from app.schemas.reviews import EventOut, ReviewOut
@@ -95,6 +96,9 @@ class ProfessionalOut(ORMModel):
 class ProfessionalDetail(ProfessionalOut):
     reviews: list[ReviewOut] = Field(default_factory=list)
     events: list[EventOut] = Field(default_factory=list)
+    # The licence the professional uploaded while signing, if any. Its bytes
+    # are behind /api/assets/{id}, which only the owner may open.
+    licence_document: AssetOut | None = None
 
 class ProfessionalListResponse(ORMModel):
     total: int

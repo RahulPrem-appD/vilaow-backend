@@ -16,7 +16,7 @@ from fastapi.responses import Response
 from app.adapters.pdf import agreement as agreement_pdf
 from app.api.clients import client_ip
 from app.api.headers import content_disposition
-from app.api.deps import AgreementServiceDep, AssetServiceDep, SettingsDep
+from app.api.deps import AgreementServiceDep, AssetServiceDep, DbDep, SettingsDep
 from app.domain import terms as terms_module
 from app.models import Staff
 from app.schemas import (
@@ -30,7 +30,7 @@ from app.schemas import (
     AgreementVerifyRequest,
 )
 from app.security import current_staff
-from app.services.assets import Upload
+from app.services.assets import Upload, licence_of
 
 router = APIRouter(prefix="/api/agreements", tags=["agreements"])
 
@@ -52,8 +52,9 @@ def issue_agreement(
 
 
 @router.get("/{token}", response_model=AgreementPublicOut)
-def get_agreement(token: str, service: AgreementServiceDep) -> AgreementPublicOut:
+def get_agreement(token: str, service: AgreementServiceDep, db: DbDep) -> AgreementPublicOut:
     agreement, professional = service.for_signing_page(token)
+    licence = licence_of(db, professional.id)
     return AgreementPublicOut(
         terms_version=agreement.terms_version,
         # So the page knows which step is outstanding after a reload.
@@ -76,6 +77,7 @@ def get_agreement(token: str, service: AgreementServiceDep) -> AgreementPublicOu
             region=professional.region,
             profession=professional.profession.label if professional.profession else None,
             photo=professional.photo,
+            licence_filename=(licence.original_filename or "Licence") if licence else None,
         ),
     )
 
@@ -131,6 +133,31 @@ def upload_signing_photo(
     professional = service.open_for_upload(token)
     return AssetOut.model_validate(
         assets.upload_photo(
+            professional.id,
+            Upload(filename=file.filename,
+                   content_type=file.content_type or "application/octet-stream",
+                   data=file.file.read()),
+            actor_label="professional (signing)",
+        )
+    )
+
+
+@router.post("/{token}/licence", response_model=AssetOut, status_code=status.HTTP_201_CREATED)
+def upload_signing_licence(
+    token: str,
+    service: AgreementServiceDep,
+    assets: AssetServiceDep,
+    file: UploadFile = File(...),
+) -> AssetOut:
+    """A photo or PDF of the professional's licence, attached while signing.
+
+    Optional, and private: it is stored as a document only the owner can open,
+    for the team to check before the "Licensed" badge goes on. Gated on the
+    same conditions as signing, like the photo above.
+    """
+    professional = service.open_for_upload(token)
+    return AssetOut.model_validate(
+        assets.upload_licence(
             professional.id,
             Upload(filename=file.filename,
                    content_type=file.content_type or "application/octet-stream",

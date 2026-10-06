@@ -34,12 +34,53 @@ MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 ALLOWED_DOCUMENT_TYPES = ALLOWED_PHOTO_TYPES | {"application/pdf"}
 
+# The licence a professional attaches while signing (client change requests,
+# 5 October, item 11). A document like any other — owner-only to read, never
+# on a public page — told apart from the owner-defined file fields by this key.
+LICENCE_KEY = "licence"
+
+
+def _sniffed_type(data: bytes) -> str | None:
+    """What the bytes are, read from their first few, whatever the name says.
+
+    The browser's content type is a guess from the file's extension, and on
+    the signing page the uploader is anyone holding a link. So the type that
+    is stored, and served back with the file, is the one the file proves it
+    has: a JPEG, PNG, WebP or PDF signature, or nothing.
+    """
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"%PDF-"):
+        return "application/pdf"
+    return None
+
 
 @dataclass(frozen=True)
 class Upload:
     filename: str | None
     content_type: str
     data: bytes
+
+
+def licence_of(db: Session, professional_id: int) -> Asset | None:
+    """The professional's latest licence upload, if any.
+
+    A plain query rather than a service method: the pages that show it — the
+    admin record, the signing form — need the row, not the storage behind it,
+    and should not fail when storage does.
+    """
+    return db.scalar(
+        select(Asset).where(
+            Asset.professional_id == professional_id,
+            Asset.kind == AssetKind.document,
+            Asset.field_key == LICENCE_KEY,
+            Asset.deleted_at.is_(None),
+        ).order_by(Asset.created_at.desc(), Asset.id.desc())
+    )
 
 
 def _safe_key(professional_id: int, kind: AssetKind, content_type: str) -> str:
@@ -79,11 +120,16 @@ class AssetService:
             raise Invalid("the file is empty")
         if len(upload.data) > limit:
             raise Invalid(f"the file is larger than {limit // (1024 * 1024)}MB")
+        # The declared type only has to be one we take; the stored one is what
+        # the bytes are. A PNG saved as .jpg is still a PNG, and is kept as one.
+        content_type = _sniffed_type(upload.data)
+        if content_type not in allowed:
+            raise Invalid("the file is not the image or PDF it says it is")
 
         stored = self._storage.put(
             upload.data,
-            key=_safe_key(professional.id, kind, upload.content_type),
-            content_type=upload.content_type,
+            key=_safe_key(professional.id, kind, content_type),
+            content_type=content_type,
         )
 
         asset = Asset(
@@ -150,6 +196,19 @@ class AssetService:
         professional.custom = {**(professional.custom or {}), field_key: asset.id}
         self._db.commit()
         return asset
+
+    def upload_licence(self, professional_id: int, upload: Upload, *,
+                       staff: Staff | None = None, actor_label: str | None = None) -> Asset:
+        """A photo or scan of the professional's licence. Optional.
+
+        Kept as a private document: the team opens it, checks it, and only
+        then switches on the "Licensed" badge. Buyers see the badge, never
+        the file (the client's choice, 6 October). A new upload does not
+        delete the old one; the latest is the licence.
+        """
+        professional = self._professional(professional_id)
+        return self._store(professional, upload, AssetKind.document, LICENCE_KEY, staff,
+                           actor_label=actor_label)
 
     def read(self, asset_id: int, *, staff: Staff | None) -> tuple[Asset, bytes]:
         asset = self._db.get(Asset, asset_id)

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.api.deps import DbDep, ProfessionalServiceDep, StaffDep
 from app.models import Event, Review, Stage, Staff
 from app.schemas import (
+    AssetOut,
     AssignRequest,
     CallRequest,
     EventOut,
@@ -24,6 +25,7 @@ from app.schemas import (
     ReviewOut,
     StageChangeRequest,
 )
+from app.services.assets import licence_of
 from app.security import current_staff, require_owner
 from app.services.professionals import ProfessionalFilters
 
@@ -78,10 +80,12 @@ def get_professional(
         .order_by(Event.created_at.desc())
     ).all()
     base = ProfessionalOut.model_validate(professional)
+    licence = licence_of(db, professional_id)
     return ProfessionalDetail(
         **base.model_dump(),
         reviews=[ReviewOut.model_validate(r) for r in reviews],
         events=[EventOut.model_validate(e) for e in events],
+        licence_document=AssetOut.model_validate(licence) if licence else None,
     )
 
 
