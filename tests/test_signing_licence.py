@@ -166,3 +166,28 @@ def test_a_photo_is_stored_as_what_it_is(as_owner, client, db, professions):
                     files={"file": ("me.jpg", PNG, "image/jpeg")})
     assert r.status_code == 201, r.text
     assert db.get(Asset, r.json()["id"]).content_type == "image/png"
+
+
+def test_one_link_takes_at_most_ten_files(as_owner, client, db, professions):
+    # Photos and licences together: each may be 20MB, and anyone holding an
+    # unsigned link could otherwise keep sending them until it expires.
+    p = _pro(db, professions)
+    token = _token(as_owner, p.id)
+    for i in range(10):
+        route = "photo" if i % 2 else "licence"
+        r = client.post(f"/api/agreements/{token}/{route}",
+                        files={"file": (f"file{i}.jpg", JPEG, "image/jpeg")})
+        assert r.status_code == 201, (i, r.text)
+    r = _attach(client, token, "one-more.pdf", PDF, "application/pdf")
+    assert r.status_code == 429
+    assert "a lot of uploads" in r.json()["detail"]
+
+
+def test_the_team_uploading_does_not_use_up_a_link(as_owner, db, professions):
+    p = _pro(db, professions)
+    token = _token(as_owner, p.id)
+    for i in range(10):
+        r = as_owner.post(f"/api/professionals/{p.id}/photo",
+                          files={"file": (f"staff{i}.jpg", JPEG, "image/jpeg")})
+        assert r.status_code == 201, r.text
+    assert _attach(as_owner, token, "licence.pdf", PDF, "application/pdf").status_code == 201

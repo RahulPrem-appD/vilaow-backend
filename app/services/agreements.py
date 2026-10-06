@@ -26,14 +26,14 @@ import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.email import templates
 from app.adapters.urls import PublicUrls
 from app.domain import terms as terms_module
 from app.domain.errors import Conflict, Gone, Invalid, NotFound, Rejected, TooMany
-from app.models import Agreement, Event, Professional, Stage, Staff
+from app.models import Agreement, Asset, Event, Professional, Stage, Staff
 from app.ports.clock import Clock
 from app.ports.email import EmailSender
 from app.services.photos import photo_reference
@@ -42,6 +42,8 @@ from app.security import hash_password, verify_password
 OTP_TTL = timedelta(minutes=10)
 OTP_MAX_ATTEMPTS = 5
 OTP_RESEND_COOLDOWN = timedelta(seconds=60)
+# Files one signing link may upload, photos and licences together.
+MAX_UPLOADS_PER_LINK = 10
 
 
 @dataclass(frozen=True)
@@ -285,12 +287,28 @@ class AgreementService:
         professional attaches while signing cannot use the staff upload route.
         This gates it on exactly the same conditions as signing itself, so a
         spent or expired link cannot be used to push files at the bucket.
+
+        And it caps how many files one link may send. Each upload can be 20MB,
+        and until the link is signed or expires anyone holding it could keep
+        going; a professional retrying a photo and a licence a few times is
+        nowhere near the cap. Deleted files still count: it limits attempts.
         """
         agreement = self.by_token(token)
         if agreement.signed_at is not None:
             raise Gone("This agreement has already been signed")
         if self._expired(agreement):
             raise Gone("This agreement link has expired")
+        sent_through_links = self._db.scalar(
+            select(func.count()).select_from(Asset).where(
+                Asset.professional_id == agreement.professional_id,
+                # Staff uploads carry who made them; a signing upload has none.
+                Asset.uploaded_by_id.is_(None),
+                Asset.created_at >= agreement.sent_at,
+            )
+        ) or 0
+        if sent_through_links >= MAX_UPLOADS_PER_LINK:
+            raise TooMany("That's a lot of uploads for one link. Reply to the email "
+                          "that brought you here and we'll help.")
         return self._professional(agreement)
 
     def latest_signed_for(self, professional_id: int) -> Agreement:
