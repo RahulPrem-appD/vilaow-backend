@@ -239,7 +239,8 @@ def test_what_is_sent_is_cached_and_has_a_fallback(client, configure, profession
     # Professions come from the admin's list, in his order.
     search = next(t for t in request["tools"] if t["name"] == "search_professionals")
     assert search["input_schema"]["properties"]["profession"]["enum"] == [
-        "agent", "lawyer", "engineer", "architect", "contractor", "accountant",
+        "agent", "lawyer", "engineer", "architect", "contractor", "property_manager",
+        "accountant",
     ]
 
 

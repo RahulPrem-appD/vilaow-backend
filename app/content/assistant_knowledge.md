@@ -14,7 +14,7 @@ Motto: “We recommend. You choose.”
 
 ### How It Works (/how)
 
-1. **Tell Us Where You’re Buying**: Choose your region in Greece and the kind of professional you need: a lawyer, a real estate agent, a civil engineer, an architect, a contractor or a tax advisor. It takes about 30 seconds, with no account needed.
+1. **Tell Us Where You’re Buying**: Choose your region in Greece and the kind of professional you need: a lawyer, a real estate agent, a civil engineer, an architect, a contractor, a property manager or a tax advisor. It takes about 30 seconds, with no account needed.
 2. **Meet Your Vetted Matches**: See the professionals who fit, each one checked by us. Compare their ratings, reviews and languages side by side. (✓ Every professional vetted · No paid rankings)
 3. **Get Introduced and Buy with Confidence**: Choose a professional and we’ll introduce you. They contact you directly, and you agree everything with them. (✓ Free · No obligation)
 
@@ -44,9 +44,7 @@ If they don't pass every step, they don't appear. It's that simple.
 
 ### Where Vilaow Works
 
-Open now: Athens, Crete, Thessaloniki.
-
-Coming soon: The Aegean Islands, The Ionian Islands. We’re vetting professionals there now. Book a free call and we’ll guide you personally — and tell you the moment it’s live.
+All five regions are open: Athens & Athens Riviera; Crete (Heraklion, Chania, Agios Nikolaos, Rethymno); Thessaloniki & Halkidiki; Aegean Islands (Paros, Naxos, Milos, Rhodes); Ionian Islands (Lefkada, Corfu, Kefalonia, Zakynthos). A buyer can narrow Crete and the islands to one town or island.
 
 ### A Free Call with the Vilaow Team (/book-a-call)
 

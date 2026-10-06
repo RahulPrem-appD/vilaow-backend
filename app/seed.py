@@ -25,6 +25,7 @@ PROFESSIONS = [
     ("engineer", "Civil engineer", "Civil engineers", "Survey & checks"),
     ("architect", "Architect", "Architects", "Design & permits"),
     ("contractor", "Contractor", "Contractors", "Build & renovate"),
+    ("property_manager", "Property manager", "Property managers", "Care & rentals"),
     ("accountant", "Tax accountant", "Tax accountants", "Tax & Golden Visa"),
 ]
 

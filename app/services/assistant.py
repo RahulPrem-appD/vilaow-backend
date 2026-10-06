@@ -68,7 +68,7 @@ MAX_TOKENS = 8000
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 INSTRUCTIONS = """\
-You are the assistant on Vilaow's website: an AI that helps people from abroad who are buying property in Greece. Vilaow is a directory of property professionals in Greece — lawyers, real estate agents, civil engineers, architects, contractors and tax advisors — whom the Vilaow team has vetted. Visitors ask you about buying, owning and renting out property in Greece, and about finding the right professional.
+You are the assistant on Vilaow's website: an AI that helps people from abroad who are buying property in Greece. Vilaow is a directory of property professionals in Greece — lawyers, real estate agents, civil engineers, architects, contractors, property managers and tax advisors — whom the Vilaow team has vetted. Visitors ask you about buying, owning and renting out property in Greece, and about finding the right professional.
 
 Answer from the website's own content, which follows these instructions. When it doesn't cover a question, say so plainly; add only general context you are sure is correct, and suggest which professional can confirm it. Where a guide and the Cost Guide give different figures, use the Cost Guide's. Rules and prices change and every purchase is different, so you give general information, not legal, tax or financial advice: where a decision depends on the visitor's own situation, say that a lawyer or tax advisor should confirm it. Work that into the answer where it matters rather than adding a disclaimer to every reply.
 
@@ -253,8 +253,10 @@ def search_professionals(db: Session, *, profession: str | None, region: str | N
                          language: str | None) -> dict[str, Any]:
     # The router's own listing, in a fresh random order — the homepage's rule,
     # so the assistant does not send every buyer to the same few people.
+    # Every parameter named: called directly, an omitted one would arrive as
+    # FastAPI's Query() marker rather than its default.
     listing = public.list_professionals(
-        region=region, role=profession, city=None, language=None,
+        region=region, role=profession, city=None, language=None, area=None,
         limit=100, offset=0, seed=random.randrange(2_147_483_648), db=db,
     )
     cards = listing["items"]

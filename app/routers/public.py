@@ -32,10 +32,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import String, cast, distinct, func, literal, select
+from sqlalchemy import String, and_, cast, distinct, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.domain.areas_served import areas_in, is_area, town_of
 from app.domain.fields import public_values
 from app.domain.visibility import resolve
 from app.models import (
@@ -357,6 +358,7 @@ def list_professionals(
     role: str | None = Query(None, description="profession key"),
     city: str | None = None,
     language: str | None = Query(None, description="a language the professional speaks"),
+    area: str | None = Query(None, description="an area served, from the fixed list"),
     # Bounded at both ends. Postgres rejects a negative LIMIT, so `?limit=-1`
     # on a public endpoint was an unhandled 500 rather than a 422.
     limit: int = Query(24, ge=1, le=100),
@@ -371,8 +373,28 @@ def list_professionals(
     db: Session = Depends(get_db),
 ):
     stmt = select(Professional).where(Professional.published.is_(True))
+    if area is not None and not is_area(area):
+        # Only the fixed list exists. Anything else is a URL nobody built.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown area")
     if region:
-        stmt = stmt.where(Professional.region == region)
+        # The office region, or any area served inside it: someone based in
+        # Athens who also works in Chania is somebody a Crete buyer can use,
+        # and a town's list has to be part of its region's list.
+        in_region = Professional.region == region
+        served_here = areas_in(region)
+        if served_here:
+            in_region = or_(in_region, Professional.areas_served.overlap(list(served_here)))
+        stmt = stmt.where(in_region)
+    if area:
+        # The town or island a buyer picked under a region (5 October): whoever
+        # lists it among the areas they serve. A record whose areas were never
+        # filled in falls back to its office town, so the filter does not hide
+        # everyone who signed up before areas existed.
+        no_areas = func.coalesce(func.cardinality(Professional.areas_served), 0) == 0
+        stmt = stmt.where(or_(
+            Professional.areas_served.any(area),
+            and_(no_areas, func.lower(Professional.city) == town_of(area).lower()),
+        ))
     if city:
         stmt = stmt.where(Professional.city == city)
     if role:
