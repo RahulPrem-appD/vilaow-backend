@@ -14,10 +14,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import Settings, get_settings
-from app.db import SessionLocal
 from app.models import Professional, Stage
 from app.services.assistant import (
-    FALLBACK_BETA, Assistant, knowledge, professional_profile, search_professionals,
+    FALLBACK_BETA, GLM_BASE_URL, GLM_MODEL, knowledge, professional_profile,
+    search_professionals,
 )
 
 CODE = "preview-code"
@@ -86,21 +86,25 @@ class FakeClient:
 # ── wiring ──────────────────────────────────────────────────────────────────
 @pytest.fixture
 def configure():
-    """Point the app at a given configuration and a given fake."""
-    from app.api.deps import get_assistant
+    """Point the app at a given configuration and a given fake.
+
+    Only the client is replaced, so `get_assistant` still decides the model
+    and which of Claude's options go into a request, as it does for real.
+    `_env_file=None` keeps a developer's backend/.env — which may name a real
+    key or another provider — out of what the tests see.
+    """
+    from app.api.deps import get_assistant_client
     from app.main import app
 
     def apply(fake=None, **settings):
         values = {"anthropic_api_key": "test-key", "assistant_access_code": CODE} | settings
-        app.dependency_overrides[get_settings] = lambda: Settings(**values)
-        app.dependency_overrides[get_assistant] = lambda: Assistant(
-            fake or FakeClient(answer("Hello.")), SessionLocal,
-            model="claude-opus-5-5", effort="low", today=lambda: date(2026, 10, 6),
-        )
+        app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None, **values)
+        app.dependency_overrides[get_assistant_client] = (
+            lambda: fake or FakeClient(answer("Hello.")))
 
     yield apply
     app.dependency_overrides.pop(get_settings, None)
-    app.dependency_overrides.pop(get_assistant, None)
+    app.dependency_overrides.pop(get_assistant_client, None)
 
 
 def ask(client, *messages, code=CODE):
@@ -227,7 +231,8 @@ def test_what_is_sent_is_cached_and_has_a_fallback(client, configure, profession
     instructions, today = request["system"]
     assert instructions["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
     assert knowledge() in instructions["text"]
-    assert today == {"type": "text", "text": "Today is 6 October 2026."}
+    now = date.today()
+    assert today == {"type": "text", "text": f"Today is {now.day} {now:%B %Y}."}
     assert request["cache_control"] == {"type": "ephemeral"}
     # The whole conversation, as the page sent it.
     assert [m["role"] for m in request["messages"]] == ["user", "assistant", "user"]
@@ -236,6 +241,57 @@ def test_what_is_sent_is_cached_and_has_a_fallback(client, configure, profession
     assert search["input_schema"]["properties"]["profession"]["enum"] == [
         "agent", "lawyer", "engineer", "architect", "contractor", "accountant",
     ]
+
+
+def test_glm_gets_the_plain_messages_api(client, configure, professions):
+    # Z.ai's endpoint speaks Anthropic's Messages API, not Claude's extras.
+    fake = FakeClient(answer("Hello."))
+    configure(fake=fake, assistant_provider="glm", anthropic_api_key="", glm_api_key="glm-key")
+    assert client.get("/api/public/assistant").json()["enabled"] is True
+    ask(client, "Hi")
+    [request] = fake.requests
+    assert request["model"] == GLM_MODEL
+    for claude_only in ("betas", "fallbacks", "output_config", "cache_control"):
+        assert claude_only not in request
+    assert not any("cache_control" in block for block in request["system"])
+    assert not any("eager_input_streaming" in tool for tool in request["tools"])
+    assert request["thinking"] == {"type": "disabled"}
+
+
+@pytest.mark.parametrize("settings", [
+    {"assistant_provider": "glm"},                        # GLM chosen, no GLM key
+    {"assistant_provider": "gpt", "glm_api_key": "k"},    # a provider nobody wrote
+])
+def test_a_provider_without_its_key_stays_off(client, configure, settings):
+    configure(**settings)
+    assert client.get("/api/public/assistant").json()["enabled"] is False
+
+
+def test_glm_is_called_at_zai():
+    from app.api.deps import get_assistant_client
+
+    glm = get_assistant_client(Settings(
+        _env_file=None, assistant_provider="glm", glm_api_key="k", assistant_access_code=CODE,
+    ))
+    claude = get_assistant_client(Settings(
+        _env_file=None, anthropic_api_key="k", assistant_access_code=CODE,
+    ))
+    assert str(glm.base_url).rstrip("/") == GLM_BASE_URL
+    assert str(claude.base_url).rstrip("/") == "https://api.anthropic.com"
+
+
+def test_an_empty_filter_is_no_filter(client, configure, db, professions):
+    _published(db, professions)
+    fake = FakeClient(
+        ([], message("tool_use", tool_use("search_professionals",
+                                          {"profession": "", "region": "", "language": ""}))),
+        answer("Here is everyone."),
+    )
+    configure(fake=fake)
+    ask(client, "Who do you have?")
+    [result] = fake.requests[1]["messages"][-1]["content"]
+    assert "is_error" not in result
+    assert json.loads(result["content"])["matches"] == 1
 
 
 def test_it_searches_the_directory_and_answers_from_it(client, configure, db, professions):

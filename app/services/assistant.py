@@ -42,6 +42,13 @@ log = logging.getLogger("vilaow.assistant")
 
 KNOWLEDGE_FILE = Path(__file__).resolve().parents[1] / "content" / "assistant_knowledge.md"
 
+# The model when ASSISTANT_MODEL is not set, per provider (ASSISTANT_PROVIDER).
+CLAUDE_MODEL = "claude-opus-5-5"
+GLM_MODEL = "glm-5.3"
+# Z.ai serves GLM behind an endpoint that speaks Anthropic's Messages API, so
+# the same client, stream and tool calls work against it unchanged.
+GLM_BASE_URL = "https://api.z.ai/api/anthropic"
+
 # Spelled as the homepage's HOME_REGIONS spells them, which is how
 # `Professional.region` stores them (app/src/components/home-regions.ts).
 REGIONS = ("Athens", "Crete", "Thessaloniki", "Aegean Islands", "Ionian Islands")
@@ -88,28 +95,29 @@ def knowledge() -> str:
     return KNOWLEDGE_FILE.read_text(encoding="utf-8")
 
 
-def system_blocks(today: date) -> list[dict[str, Any]]:
+def system_blocks(today: date, *, cached: bool = True) -> list[dict[str, Any]]:
     """The instructions and the site's content, then today's date.
 
     The first block is identical for every visitor, so it carries the cache
     breakpoint; tools render before system, so the breakpoint covers them too.
     An hour rather than five minutes because traffic is light: most
     conversations would otherwise start cold and pay to write it again.
+    `cached=False` leaves the marker off for a provider that does not take it.
 
     The date sits after the breakpoint. Inside the cached block it would
     rewrite the whole cache every midnight for the sake of one line.
     """
-    return [
-        {
-            "type": "text",
-            "text": f"{INSTRUCTIONS}\n\n<website_content>\n{knowledge()}</website_content>",
-            "cache_control": {"type": "ephemeral", "ttl": "1h"},
-        },
-        {"type": "text", "text": f"Today is {today.day} {today:%B %Y}."},
-    ]
+    content = {
+        "type": "text",
+        "text": f"{INSTRUCTIONS}\n\n<website_content>\n{knowledge()}</website_content>",
+    }
+    if cached:
+        content["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
+    return [content, {"type": "text", "text": f"Today is {today.day} {today:%B %Y}."}]
 
 
-def tool_definitions(professions: list[tuple[str, str]]) -> list[dict[str, Any]]:
+def tool_definitions(professions: list[tuple[str, str]], *,
+                     eager: bool = True) -> list[dict[str, Any]]:
     """The two directory tools.
 
     The profession list comes from the database — the owner manages it in the
@@ -119,9 +127,10 @@ def tool_definitions(professions: list[tuple[str, str]]) -> list[dict[str, Any]]
 
     `eager_input_streaming` lets tool input stream as it is generated; the
     price is that the API no longer validates it, so `_search_input` and
-    `_profile_input` do.
+    `_profile_input` do — and they do it whatever the provider, since only
+    Claude's API checks a tool call against its schema at all.
     """
-    return [
+    tools = [
         {
             "name": "search_professionals",
             "description": (
@@ -182,6 +191,10 @@ def tool_definitions(professions: list[tuple[str, str]]) -> list[dict[str, Any]]
             "eager_input_streaming": True,
         },
     ]
+    if not eager:
+        for tool in tools:
+            del tool["eager_input_streaming"]
+    return tools
 
 
 class ToolInputError(ValueError):
@@ -191,7 +204,8 @@ class ToolInputError(ValueError):
 def _search_input(raw: Any, professions: list[tuple[str, str]]) -> dict[str, str | None]:
     if not isinstance(raw, dict) or set(raw) - {"profession", "region", "language"}:
         raise ToolInputError("Expected an object with profession, region and language.")
-    profession, region, language = (raw.get(k) for k in ("profession", "region", "language"))
+    # An empty value is no filter: some models fill in every field they see.
+    profession, region, language = (raw.get(k) or None for k in ("profession", "region", "language"))
     if profession is not None and profession not in {key for key, _ in professions}:
         raise ToolInputError(f"Unknown profession {profession!r}.")
     if region is not None and region not in REGIONS:
@@ -287,11 +301,16 @@ def _replayable(content: list[Any]) -> list[Any]:
 
 class Assistant:
     def __init__(self, client: anthropic.Anthropic, session_factory: Callable[[], Session], *,
-                 model: str, effort: str, today: Callable[[], date] = date.today) -> None:
+                 model: str, effort: str, claude: bool = True,
+                 today: Callable[[], date] = date.today) -> None:
         self._client = client
         self._session_factory = session_factory
         self._model = model
         self._effort = effort
+        # Claude's own API, with its caching, effort and fallback options. When
+        # False the request is the plain Messages API that compatible
+        # endpoints such as Z.ai's accept.
+        self._claude = claude
         self._today = today
 
     def reply(self, history: list[dict[str, str]]) -> Iterator[dict[str, str]]:
@@ -306,18 +325,26 @@ class Assistant:
                 select(Profession.key, Profession.label)
                 .where(Profession.active.is_(True)).order_by(Profession.position)
             )]
-        request = dict(
+        request: dict[str, Any] = dict(
             model=self._model,
             max_tokens=MAX_TOKENS,
-            system=system_blocks(self._today()),
-            tools=tool_definitions(professions),
-            output_config={"effort": self._effort},
-            # Caches the conversation so far, on top of the explicit breakpoint
-            # on the system prompt: the next message reads it back.
-            cache_control={"type": "ephemeral"},
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
+            system=system_blocks(self._today(), cached=self._claude),
+            tools=tool_definitions(professions, eager=self._claude),
         )
+        if self._claude:
+            request.update(
+                output_config={"effort": self._effort},
+                # Caches the conversation so far, on top of the explicit
+                # breakpoint on the system prompt: the next message reads it.
+                cache_control={"type": "ephemeral"},
+                betas=[FALLBACK_BETA],
+                fallbacks="default",
+            )
+        else:
+            # GLM thinks before every reply unless told not to. For an answer
+            # from content it already has, that doubled the wait: five seconds
+            # for a one-word reply against two without.
+            request["thinking"] = {"type": "disabled"}
         messages: list[dict[str, Any]] = [
             {"role": m["role"], "content": m["content"]} for m in history
         ]

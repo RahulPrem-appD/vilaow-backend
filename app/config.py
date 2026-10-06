@@ -93,8 +93,14 @@ class Settings(BaseSettings):
     # works without it, so a missing key turns the chat off rather than
     # stopping the API.
     anthropic_api_key: str = ""
-    assistant_model: str = "claude-opus-5-5"
-    # How hard the model thinks before it answers. "low" keeps a chat reply
+    # Which model answers: "claude", what the assistant was built for, or
+    # "glm", Z.ai's GLM models through Z.ai's Anthropic-compatible endpoint.
+    # Anything else leaves the assistant off.
+    assistant_provider: str = "claude"
+    glm_api_key: str = ""
+    # Empty means the provider's own default (app/services/assistant.py).
+    assistant_model: str = ""
+    # How hard Claude thinks before it answers. "low" keeps a chat reply
     # quick and cheap; the answers come from the site's own guides, which the
     # model has in front of it, so they rarely need more.
     assistant_effort: str = "low"
@@ -105,6 +111,13 @@ class Settings(BaseSettings):
     assistant_public: bool = False
 
     @property
+    def assistant_key(self) -> str:
+        """The key for the chosen provider; empty for one this code does not know."""
+        return {"claude": self.anthropic_api_key, "glm": self.glm_api_key}.get(
+            self.assistant_provider, ""
+        )
+
+    @property
     def assistant_configured(self) -> bool:
         """Can the assistant answer anyone at all?
 
@@ -112,7 +125,7 @@ class Settings(BaseSettings):
         none. A key on its own is not enough: forgetting the code would open
         a paid endpoint to everyone, so that combination stays off.
         """
-        return bool(self.anthropic_api_key) and (
+        return bool(self.assistant_key) and (
             self.assistant_public or bool(self.assistant_access_code)
         )
 

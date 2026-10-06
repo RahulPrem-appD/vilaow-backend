@@ -177,8 +177,9 @@ ProfessionServiceDep = Annotated["ProfessionService", Depends(get_profession_ser
 
 
 @lru_cache
-def _anthropic(api_key: str) -> "anthropic.Anthropic":
-    """One client per key, for the same reason as the Firebase one above.
+def _anthropic(api_key: str, base_url: str | None = None) -> "anthropic.Anthropic":
+    """One client per key and endpoint, for the same reason as the Firebase
+    one above.
 
     Sixty seconds of silence ends a request: an answer streams in well under
     that, and a visitor should hear "try again" rather than wait on a hung
@@ -186,21 +187,35 @@ def _anthropic(api_key: str) -> "anthropic.Anthropic":
     """
     import anthropic
 
-    return anthropic.Anthropic(api_key=api_key, timeout=anthropic.Timeout(60.0, connect=10.0))
+    return anthropic.Anthropic(api_key=api_key, base_url=base_url,
+                               timeout=anthropic.Timeout(60.0, connect=10.0))
 
 
-def get_assistant(settings: SettingsDep) -> "Assistant":
+def get_assistant_client(settings: SettingsDep) -> "anthropic.Anthropic":
     from fastapi import HTTPException, status
 
-    from app.db import SessionLocal
-    from app.services.assistant import Assistant
+    from app.services.assistant import GLM_BASE_URL
 
     # Refused before a client is built: there is no key to build one with.
     if not settings.assistant_configured:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "The assistant is not switched on.")
-    return Assistant(_anthropic(settings.anthropic_api_key), SessionLocal,
-                     model=settings.assistant_model, effort=settings.assistant_effort)
+    if settings.assistant_provider == "glm":
+        return _anthropic(settings.glm_api_key, GLM_BASE_URL)
+    return _anthropic(settings.anthropic_api_key)
+
+
+AssistantClientDep = Annotated["anthropic.Anthropic", Depends(get_assistant_client)]
+
+
+def get_assistant(settings: SettingsDep, client: AssistantClientDep) -> "Assistant":
+    from app.db import SessionLocal
+    from app.services.assistant import CLAUDE_MODEL, GLM_MODEL, Assistant
+
+    claude = settings.assistant_provider == "claude"
+    return Assistant(client, SessionLocal,
+                     model=settings.assistant_model or (CLAUDE_MODEL if claude else GLM_MODEL),
+                     effort=settings.assistant_effort, claude=claude)
 
 
 AssistantDep = Annotated["Assistant", Depends(get_assistant)]
