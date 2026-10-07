@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from app.api.clients import client_ip
 from app.api.deps import (
     DbDep,
+    FollowUpServiceDep,
     IntroductionServiceDep,
     SettingsDep,
     StaffDep,
@@ -25,6 +26,7 @@ from app.schemas import (
     IntroductionListResponse,
     IntroductionOut,
     IntroductionUpdate,
+    PretendReply,
     VerifiedReviewContext,
     VerifiedReviewCreate,
 )
@@ -52,6 +54,7 @@ def request_introduction(
         honeypot=payload.website,
         ip=client_ip(request, settings),
         user_agent=request.headers.get("user-agent"),
+        locale=payload.locale,
     ))
     # `None` is the honeypot: answer exactly as if it worked.
     return IntroductionCreated(
@@ -124,6 +127,17 @@ def erase_introduction(
     staff: Staff = Depends(require_owner),
 ) -> None:
     service.erase(introduction_id, staff=staff)
+
+
+@router.post("/{introduction_id}/pretend-reply", response_model=IntroductionOut)
+def pretend_reply(
+    introduction_id: int, payload: PretendReply, follow_ups: FollowUpServiceDep,
+    service: IntroductionServiceDep, _staff: StaffDep,
+) -> IntroductionOut:
+    """Staff acting out a WhatsApp answer, to try the follow-up before WhatsApp
+    is connected. Refused once it is: then only real answers count."""
+    follow_ups.pretend_reply(introduction_id, who=payload.who, answer=payload.answer)
+    return IntroductionOut.model_validate(service.get(introduction_id))
 
 
 @router.post("/send-review-requests")

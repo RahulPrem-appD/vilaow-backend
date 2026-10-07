@@ -4,6 +4,7 @@ Nothing here has a usable default for a secret. A missing SECRET_KEY in
 production must stop the process, not silently fall back to a shared constant
 that ends up signing real session cookies.
 """
+import json
 import os
 from functools import lru_cache
 
@@ -109,6 +110,35 @@ class Settings(BaseSettings):
     # ASSISTANT_PUBLIC=true to drop the code once it launches.
     assistant_access_code: str = ""
     assistant_public: bool = False
+
+    # The WhatsApp follow-up of an introduction (change request 12;
+    # app/services/follow_ups.py). "off" until WhatsApp is connected;
+    # "pretend" writes every step down and sends nothing, for trying the flow;
+    # "twilio" sends for real, and then replaces the introduction emails.
+    whatsapp_mode: str = "off"
+    # The professionals' messages: "el" Greek or "en" English. Either falls
+    # back to English when that language's template is not approved yet.
+    whatsapp_pro_language: str = "el"
+    # "The number of hours between reminders, and the maximum number of
+    # reminders, should be easy to change" — so they are settings, not code.
+    followup_first_reminder_hours: float = 4
+    followup_reminder_every_hours: float = 24
+    followup_max_reminders: int = 3
+    followup_buyer_check_hours: float = 48
+    # Twilio, for "twilio" mode. The sender is the approved WhatsApp number;
+    # the content SIDs map each template and language to its approved Twilio
+    # template, as JSON: {"thank_buyer.en": "HX…", "remind_pro.el": "HX…"}.
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_whatsapp_from: str = ""
+    twilio_content_sids: str = ""
+    # The public origin Twilio calls back on, e.g. https://vilaow-backend.onrender.com.
+    # Its signature covers the exact address, which behind Render's proxy the
+    # request itself cannot be trusted to report.
+    twilio_webhook_base: str = ""
+    # Lets a scheduler run the due steps (POST /api/follow-ups/run with the
+    # header X-Jobs-Key) without a staff login. Empty: only staff can.
+    jobs_secret: str = ""
 
     @property
     def assistant_key(self) -> str:
@@ -244,6 +274,7 @@ class Settings(BaseSettings):
                 "container filesystem that Render discards on the next deploy, "
                 "taking every photo and licence scan with it"
             )
+        missing.extend(self._whatsapp_problems())
 
         if missing:
             raise RuntimeError(
@@ -251,6 +282,43 @@ class Settings(BaseSettings):
                 + "\n  - ".join(missing)
                 + "\nSee backend/.env.example and render.yaml."
             )
+
+
+    def _whatsapp_problems(self) -> list[str]:
+        """What stops the WhatsApp follow-up working, in production.
+
+        "twilio" with a piece missing would accept every introduction and then
+        fail each message quietly, one step at a time, while the buyer is told
+        someone will be in touch — so it is a deploy that does not go live.
+        """
+        problems: list[str] = []
+        if self.whatsapp_mode not in ("off", "pretend", "twilio"):
+            problems.append(f"WHATSAPP_MODE is {self.whatsapp_mode!r} — use off, pretend or twilio")
+        if self.jobs_secret and len(self.jobs_secret) < 32:
+            problems.append(
+                "JOBS_SECRET is shorter than 32 characters — it lets anyone who "
+                "knows it run the follow-up, so it must not be guessable"
+            )
+        if self.whatsapp_mode != "twilio":
+            return problems
+        for name in ("twilio_account_sid", "twilio_auth_token", "twilio_whatsapp_from"):
+            if not getattr(self, name):
+                problems.append(f"{name.upper()} is unset, and WHATSAPP_MODE is twilio")
+        try:
+            sids = json.loads(self.twilio_content_sids or "")
+            if not isinstance(sids, dict) or not sids:
+                raise ValueError
+        except ValueError:
+            problems.append(
+                'TWILIO_CONTENT_SIDS is not a JSON object like {"thank_buyer.en": "HX…"} '
+                "— without it there is no approved template to send"
+            )
+        if not self.twilio_webhook_base.startswith("https://"):
+            problems.append(
+                "TWILIO_WEBHOOK_BASE must be the https origin Twilio calls back on — "
+                "without it no reply could be checked, so none would be accepted"
+            )
+        return problems
 
 
 @lru_cache

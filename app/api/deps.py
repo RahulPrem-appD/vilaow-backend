@@ -11,6 +11,9 @@ app a different sender.
 """
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, TYPE_CHECKING
@@ -30,6 +33,7 @@ from app.domain.errors import StorageFailure
 from app.ports.clock import Clock, SystemClock
 from app.ports.email import EmailSender
 from app.ports.storage import StorageBackend
+from app.ports.whatsapp import WhatsAppSender
 
 if TYPE_CHECKING:  # imported lazily below to keep the graph acyclic
     import anthropic
@@ -37,6 +41,7 @@ if TYPE_CHECKING:  # imported lazily below to keep the graph acyclic
     from app.services.agreements import AgreementService
     from app.services.assistant import Assistant
     from app.services.assets import AssetService
+    from app.services.follow_ups import FollowUpConfig, FollowUpService
     from app.services.introductions import IntroductionService, VerifiedReviewService
     from app.services.professionals import ProfessionalService
     from app.services.professions import ProfessionService
@@ -129,12 +134,102 @@ def get_agreement_service(
 AgreementServiceDep = Annotated["AgreementService", Depends(get_agreement_service)]
 
 
+# ── the WhatsApp follow-up (change request 12) ─────────────────────────────
+
+def get_follow_up_config(settings: SettingsDep) -> "FollowUpConfig":
+    from app.services.follow_ups import MODES, FollowUpConfig, FollowUpPolicy
+
+    def hours(value: float, default: float) -> timedelta:
+        # A zero or negative gap would send every reminder at once.
+        return timedelta(hours=value if value > 0 else default)
+
+    return FollowUpConfig(
+        mode=settings.whatsapp_mode if settings.whatsapp_mode in MODES else "off",
+        pro_language=settings.whatsapp_pro_language,
+        policy=FollowUpPolicy(
+            first_reminder=hours(settings.followup_first_reminder_hours, 4),
+            reminder_every=hours(settings.followup_reminder_every_hours, 24),
+            max_reminders=max(0, min(10, settings.followup_max_reminders)),
+            buyer_check=hours(settings.followup_buyer_check_hours, 48),
+        ),
+    )
+
+
+FollowUpConfigDep = Annotated["FollowUpConfig", Depends(get_follow_up_config)]
+
+
+@lru_cache
+def _twilio(account_sid: str, auth_token: str, from_number: str, content_sids: str,
+            status_callback: str | None) -> WhatsAppSender:
+    from app.adapters.whatsapp.twilio import TwilioWhatsAppSender
+
+    try:
+        sids = json.loads(content_sids or "{}")
+    except ValueError:
+        sids = {}   # each send then fails with "no approved template", visibly
+    return TwilioWhatsAppSender(
+        account_sid=account_sid, auth_token=auth_token, from_number=from_number,
+        content_sids=sids if isinstance(sids, dict) else {},
+        status_callback=status_callback,
+    )
+
+
+def get_whatsapp_sender(settings: SettingsDep) -> WhatsAppSender | None:
+    """None while WhatsApp is off, or switched on without its credentials:
+    the follow-up then plans nothing, rather than planning messages that
+    cannot leave."""
+    if settings.whatsapp_mode == "pretend":
+        from app.adapters.whatsapp.pretend import PretendWhatsAppSender
+
+        return PretendWhatsAppSender()
+    if (settings.whatsapp_mode == "twilio" and settings.twilio_account_sid
+            and settings.twilio_auth_token and settings.twilio_whatsapp_from):
+        base = settings.twilio_webhook_base.rstrip("/")
+        return _twilio(settings.twilio_account_sid, settings.twilio_auth_token,
+                       settings.twilio_whatsapp_from, settings.twilio_content_sids,
+                       f"{base}/api/whatsapp/twilio/status" if base else None)
+    return None
+
+
+WhatsAppDep = Annotated[WhatsAppSender | None, Depends(get_whatsapp_sender)]
+
+
+def get_follow_up_service(
+    db: DbDep, clock: ClockDep, sender: WhatsAppDep, config: FollowUpConfigDep,
+) -> "FollowUpService":
+    from app.services.follow_ups import FollowUpService
+
+    return FollowUpService(db, clock=clock, sender=sender, config=config)
+
+
+FollowUpServiceDep = Annotated["FollowUpService", Depends(get_follow_up_service)]
+
+
+@dataclass(frozen=True)
+class TwilioWebhook:
+    """What checking a callback needs: the secret it is signed with, and the
+    address Twilio was told to call."""
+    auth_token: str
+    base: str
+
+
+def get_twilio_webhook(settings: SettingsDep) -> TwilioWebhook | None:
+    if (settings.whatsapp_mode != "twilio" or not settings.twilio_auth_token
+            or not settings.twilio_webhook_base):
+        return None
+    return TwilioWebhook(settings.twilio_auth_token, settings.twilio_webhook_base.rstrip("/"))
+
+
+TwilioWebhookDep = Annotated[TwilioWebhook | None, Depends(get_twilio_webhook)]
+
+
 def get_introduction_service(
     db: DbDep, clock: ClockDep, email: EmailDep, urls: UrlsDep,
+    follow_ups: FollowUpServiceDep,
 ) -> "IntroductionService":
     from app.services.introductions import IntroductionService
 
-    return IntroductionService(db, clock=clock, email=email, urls=urls)
+    return IntroductionService(db, clock=clock, email=email, urls=urls, follow_ups=follow_ups)
 
 
 IntroductionServiceDep = Annotated["IntroductionService", Depends(get_introduction_service)]

@@ -17,7 +17,7 @@ from app.api import errors as api_errors
 from app.config import get_settings
 from app.db import engine
 from app.routers import (
-    agreements, assets, assistant, auth, imports, introductions, leads, professionals,
+    agreements, assets, assistant, auth, follow_ups, imports, introductions, leads, professionals,
     professions, public, site_texts, staff,
 )
 
@@ -113,10 +113,12 @@ app.include_router(site_texts.public_router)
 # The one public *write*: a buyer asking to be introduced. Separate router,
 # same rule — nothing here may read across into the admin schemas.
 app.include_router(introductions.public_router)
+app.include_router(follow_ups.webhook_router)   # Twilio, signature-checked
 # The website assistant: public, paid per message, so gated by a code while it
 # is a preview and rate limited always.
 app.include_router(assistant.router)
 app.include_router(introductions.router)
+app.include_router(follow_ups.router)
 app.include_router(auth.router)
 app.include_router(professionals.router)
 app.include_router(imports.router)

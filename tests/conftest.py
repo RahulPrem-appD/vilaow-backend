@@ -41,12 +41,25 @@ if any(h in TEST_DATABASE_URL for h in ("render.com", "amazonaws.com", "supabase
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app.db import SessionLocal, engine
 from app.models import Base, Profession, Role, Staff
 from app.security import hash_password
 from app.seed import PROFESSIONS
+
+
+@event.listens_for(engine, "connect")
+def _no_endless_waits(dbapi_connection, _record):
+    """A test stuck waiting on a row lock fails after ten seconds.
+
+    Without this a lost lock hangs the whole suite with no output — which is
+    what removing SKIP LOCKED from the follow-up did, in a check that the
+    test for it would notice. A failure says where; a hang says nothing.
+    """
+    with dbapi_connection.cursor() as cursor:
+        cursor.execute("SET lock_timeout = '10s'")
+    dbapi_connection.commit()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -86,6 +99,25 @@ def outbox():
 def _never_send_real_email(outbox):
     """Applied to every test, not only the ones that read the outbox."""
     return outbox
+
+
+@pytest.fixture(autouse=True)
+def _never_send_real_whatsapp():
+    """The same guard for WhatsApp: off in every test, whatever .env says.
+
+    .env may one day carry live Twilio credentials, as it carries live Gmail
+    ones today. The tests of the follow-up switch it on with a sender of their
+    own (tests/test_follow_ups.py).
+    """
+    from app.api.deps import get_follow_up_config, get_whatsapp_sender
+    from app.main import app
+    from app.services.follow_ups import FollowUpConfig
+
+    app.dependency_overrides[get_whatsapp_sender] = lambda: None
+    app.dependency_overrides[get_follow_up_config] = lambda: FollowUpConfig()
+    yield
+    app.dependency_overrides.pop(get_whatsapp_sender, None)
+    app.dependency_overrides.pop(get_follow_up_config, None)
 
 
 @pytest.fixture(autouse=True)

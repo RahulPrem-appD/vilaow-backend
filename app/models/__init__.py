@@ -18,6 +18,7 @@ from app.models.agreement import Agreement
 from app.models.lead import Lead, LeadStatus
 from app.models.event import Event
 from app.models.review import Review, ReviewKind
+from app.models.introduction_step import IntroductionStep
 from app.models.introduction import Introduction, IntroOutcome, IntroStatus
 from app.models.asset import Asset, AssetKind
 from app.models.site_text import SITE_LOCALES, SiteText
@@ -31,7 +32,7 @@ __all__ = [
     "Lead", "LeadStatus",
     "Event",
     "Review", "ReviewKind",
-    "Introduction", "IntroOutcome", "IntroStatus",
+    "Introduction", "IntroOutcome", "IntroStatus", "IntroductionStep",
     "Asset", "AssetKind",
     "SITE_LOCALES", "SiteText",
 ]

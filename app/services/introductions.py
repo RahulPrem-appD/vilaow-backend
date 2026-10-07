@@ -12,9 +12,12 @@ which is why this is a worked queue with an overdue clock, not a log.
 """
 from __future__ import annotations
 
+import logging
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -35,12 +38,22 @@ from app.models import (
 from app.ports.clock import Clock
 from app.ports.email import EmailSender
 
+if TYPE_CHECKING:
+    from app.services.follow_ups import FollowUpService
+
+log = logging.getLogger(__name__)
+
 # Enough for a household comparing three lawyers; nowhere near enough to spam
 # the directory, or to use the form to harass someone by repeatedly submitting
 # their number.
 RATE_WINDOW = timedelta(hours=1)
 MAX_PER_IP_PER_WINDOW = 5
 MAX_PER_EMAIL_PER_WINDOW = 3
+# With WhatsApp on, a request also messages the number typed in it, and the
+# professional's phone, several times. A fresh email per request gets past the
+# email limit, so the number and the professional have limits of their own.
+MAX_PER_PHONE_PER_WINDOW = 3
+MAX_PER_PROFESSIONAL_PER_WINDOW = 10
 
 # Long enough that the work has actually happened, short enough to be fresh.
 REVIEW_DELAY = timedelta(days=3)
@@ -63,14 +76,24 @@ class IntroductionRequest:
     honeypot: str | None
     ip: str | None
     user_agent: str | None
+    # The page's language, so the buyer's WhatsApp messages are in it.
+    locale: str | None = None
+
+
+def _phone_digits(phone: str | None) -> str:
+    """A typed number as bare digits, the same however it was written."""
+    digits = re.sub(r"\D", "", re.sub(r"\(\s*0\s*\)", "", phone or ""))
+    return digits[2:] if digits.startswith("00") else digits
 
 
 class IntroductionService:
-    def __init__(self, db: Session, *, clock: Clock, email: EmailSender, urls: PublicUrls) -> None:
+    def __init__(self, db: Session, *, clock: Clock, email: EmailSender, urls: PublicUrls,
+                 follow_ups: "FollowUpService | None" = None) -> None:
         self._db = db
         self._clock = clock
         self._email = email
         self._urls = urls
+        self._follow_ups = follow_ups
 
     # ── the public request ──────────────────────────────────────────────────
     def request(self, req: IntroductionRequest) -> Introduction | None:
@@ -93,7 +116,7 @@ class IntroductionService:
         if not req.consent:
             raise Invalid("We need your permission to pass your details to the professional")
 
-        if self._too_many(req.ip, req.buyer_email):
+        if self._too_many(req.ip, req.buyer_email, req.buyer_phone, professional.id):
             raise TooMany("That is a lot of requests in a short time — please try again later")
 
         now = self._clock.now()
@@ -115,20 +138,63 @@ class IntroductionService:
             user_agent=req.user_agent,
             status=IntroStatus.new,
             created_at=now,
+            locale=req.locale if req.locale in ("en", "el", "fr") else None,
         )
         intro.set_due()
         self._db.add(intro)
         self._db.commit()
         self._db.refresh(intro)
 
-        self._notify(intro, professional)
+        # Change request 12: once WhatsApp is connected for real it is the
+        # only channel, so the two emails stop. Until then they carry on.
+        whatsapp_only = bool(self._follow_ups and self._follow_ups.replaces_email)
+        if not whatsapp_only:
+            self._notify(intro, professional)
+        self._follow_up(intro)
+        if whatsapp_only:
+            self._email_what_whatsapp_could_not(intro, professional)
         return intro
 
-    def _notify(self, intro: Introduction, professional: Professional) -> None:
+    def _email_what_whatsapp_could_not(self, intro: Introduction, professional: Professional) -> None:
+        """WhatsApp only — except where it cannot go at all.
+
+        A professional with no mobile number, or a buyer whose number has no
+        country code, would otherwise never hear: the request accepted, the
+        buyer told someone will call, and nothing sent to anyone. So a first
+        message that was skipped, or refused outright, goes by email instead.
+        One that is only waiting to be tried again does not.
+        """
+        missed = {step.kind for step in intro.steps
+                  if step.kind in ("thank_buyer", "request_to_pro")
+                  and step.status in ("skipped", "failed")}
+        if missed:
+            self._notify(intro, professional,
+                         to_professional="request_to_pro" in missed,
+                         to_buyer="thank_buyer" in missed)
+
+    def _follow_up(self, intro: Introduction) -> None:
+        """Plans the WhatsApp follow-up and sends its first two messages.
+
+        Nothing here may fail the request. The introduction is saved, a step
+        that did not go out is retried by the next run, and the queue's own
+        overdue clock still catches a professional nobody reached — whereas a
+        buyer told "something went wrong" would simply try again, twice.
+        """
+        if self._follow_ups is None or not self._follow_ups.on:
+            return
+        try:
+            self._follow_ups.start(intro)
+            self._follow_ups.run_due(introduction_id=intro.id)
+        except Exception:
+            self._db.rollback()
+            log.exception("The WhatsApp follow-up of introduction %s did not start", intro.id)
+
+    def _notify(self, intro: Introduction, professional: Professional, *,
+                to_professional: bool = True, to_buyer: bool = True) -> None:
         """Neither email failing may undo the record. A lost email is
         recoverable from the queue; a lost introduction is a buyer who was told
         someone would call and never heard from anyone."""
-        if professional.email:
+        if to_professional and professional.email:
             result = self._email.send(templates.introduction_to_professional(
                 to=professional.email,
                 name=professional.contact_name or professional.business_name,
@@ -148,23 +214,46 @@ class IntroductionService:
         # is what tells the buyer someone will be in touch, so when a buyer
         # says they never heard anything, the caller needs to see whether it
         # left the building — not guess from the fact that a row exists.
-        confirmation = self._email.send(templates.introduction_confirmation(
-            to=intro.buyer_email,
-            buyer_name=intro.buyer_name,
-            professional_name=intro.professional_name or "",
-            professional_role=intro.professional_role,
-        ))
-        self._db.add(Event(
-            professional_id=professional.id,
-            actor_label="introduction",
-            kind="buyer_confirmation_sent" if confirmation.ok
-                 else "buyer_confirmation_failed",
-            detail=f"{intro.buyer_email}: {confirmation.detail}",
-        ))
+        if to_buyer:
+            confirmation = self._email.send(templates.introduction_confirmation(
+                to=intro.buyer_email,
+                buyer_name=intro.buyer_name,
+                professional_name=intro.professional_name or "",
+                professional_role=intro.professional_role,
+            ))
+            self._db.add(Event(
+                professional_id=professional.id,
+                actor_label="introduction",
+                kind="buyer_confirmation_sent" if confirmation.ok
+                     else "buyer_confirmation_failed",
+                detail=f"{intro.buyer_email}: {confirmation.detail}",
+            ))
         self._db.commit()
 
-    def _too_many(self, ip: str | None, email: str) -> bool:
+    def _too_many(self, ip: str | None, email: str, phone: str, professional_id: int) -> bool:
         since = self._clock.now() - RATE_WINDOW
+        digits = _phone_digits(phone)
+        if digits:
+            # Compared as digits, so "+44 7700 900123", "0044 7700 900123" and
+            # "+44 (0) 7700 900123" are one number, in the query as here.
+            stored = func.regexp_replace(
+                func.regexp_replace(
+                    func.regexp_replace(Introduction.buyer_phone, r"\(\s*0\s*\)", "", "g"),
+                    r"\D", "", "g"),
+                r"^00", "")
+            by_phone = self._db.scalar(
+                select(func.count()).select_from(Introduction).where(
+                    stored == digits, Introduction.created_at >= since)
+            ) or 0
+            if by_phone >= MAX_PER_PHONE_PER_WINDOW:
+                return True
+        by_professional = self._db.scalar(
+            select(func.count()).select_from(Introduction).where(
+                Introduction.professional_id == professional_id,
+                Introduction.created_at >= since)
+        ) or 0
+        if by_professional >= MAX_PER_PROFESSIONAL_PER_WINDOW:
+            return True
         by_email = self._db.scalar(
             select(func.count()).select_from(Introduction)
             .where(Introduction.buyer_email == email, Introduction.created_at >= since)

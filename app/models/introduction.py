@@ -5,9 +5,10 @@ import enum
 from datetime import datetime, timedelta
 
 from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, utcnow
+from app.models.introduction_step import IntroductionStep
 
 
 class IntroStatus(str, enum.Enum):
@@ -83,6 +84,20 @@ class Introduction(Base):
     review_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     review_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # The WhatsApp follow-up (change request 12; app/services/follow_ups.py).
+    # The language of the page the buyer asked from, so their messages are in
+    # it; and the two answers that decide what happens next.
+    locale: Mapped[str | None] = mapped_column(String(5))
+    pro_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    buyer_answer: Mapped[str | None] = mapped_column(String(8))
+    buyer_answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Loaded with the row: the admin queue shows every introduction's steps.
+    steps: Mapped[list[IntroductionStep]] = relationship(
+        order_by=IntroductionStep.id, cascade="all, delete-orphan",
+        passive_deletes=True, lazy="selectin",
+    )
 
     def set_due(self) -> None:
         """Same 24-hour clock the callback promise uses, for the same reason:

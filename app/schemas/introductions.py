@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field
 
@@ -22,6 +23,9 @@ class IntroductionCreate(ORMModel):
     buyer_phone: str = Field(min_length=1, max_length=60)
     message: str | None = Field(default=None, max_length=2000)
     source_page: str | None = Field(default=None, max_length=255)
+    # The page's language ("en", "el", "fr"): the buyer's WhatsApp messages
+    # are written in it. Anything else is ignored rather than refused.
+    locale: str | None = Field(default=None, max_length=5)
 
     # Submitting this form mails a real person's contact details to a third
     # party. This tick is the lawful basis for that, so the server requires it
@@ -37,6 +41,19 @@ class IntroductionCreated(ORMModel):
     """Deliberately thin. A public caller learns only that it worked."""
     ok: bool = True
     professional_name: str | None = None
+
+class IntroductionStepOut(ORMModel):
+    """One step of the WhatsApp follow-up: due, sent, answered — with its time."""
+    id: int
+    kind: str
+    recipient: str
+    status: str
+    attempt: int | None
+    due_at: datetime | None
+    done_at: datetime | None
+    transport: str | None
+    answer: str | None
+    detail: str | None
 
 class IntroductionOut(ORMModel):
     id: int
@@ -59,6 +76,11 @@ class IntroductionOut(ORMModel):
     closed_at: datetime | None
     review_requested_at: datetime | None
     review_submitted_at: datetime | None
+    locale: str | None = None
+    pro_confirmed_at: datetime | None = None
+    buyer_answer: str | None = None
+    buyer_answered_at: datetime | None = None
+    steps: list[IntroductionStepOut] = []
 
 class IntroductionListResponse(ORMModel):
     total: int
@@ -69,3 +91,17 @@ class IntroductionUpdate(ORMModel):
     outcome: IntroOutcome | None = None
     notes: str | None = None
     assigned_to_id: int | None = None
+
+class PretendReply(ORMModel):
+    """Staff acting out a WhatsApp answer, while WhatsApp is not connected."""
+    who: Literal["professional", "buyer"]
+    answer: Literal["yes", "no"]
+
+class FollowUpSettingsOut(ORMModel):
+    mode: Literal["off", "pretend", "twilio"]
+    first_reminder_hours: float
+    reminder_every_hours: float
+    max_reminders: int
+    buyer_check_hours: float
+    # Scheduled steps more than half an hour past due: nothing is running the clock.
+    late_steps: int

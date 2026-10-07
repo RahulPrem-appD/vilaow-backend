@@ -306,3 +306,43 @@ def test_the_review_request_waits_before_asking(as_caller, client, db, professio
 
     # Recorded on the professional's timeline, like the other two emails.
     assert "review_requested" in _events(db, intro.professional_id)
+
+
+# ── limits that WhatsApp makes necessary ────────────────────────────────────
+def test_one_phone_number_cannot_be_flooded_with_fresh_emails(client, db, professions):
+    """With WhatsApp on, every request messages the number typed in it. A new
+    email each time gets past the email limit; the number has its own."""
+    _published(db, professions)
+    for n, phone in enumerate(["+44 7700 900123", "+447700900123", "0044 7700 900 123"]):
+        r = client.post("/api/public/introductions",
+                        json=_body(buyer_email=f"buyer{n}@example.com", buyer_phone=phone))
+        assert r.status_code == 201, r.text
+    r = client.post("/api/public/introductions",
+                    json=_body(buyer_email="buyer9@example.com", buyer_phone="+44 7700 900123"))
+    assert r.status_code == 429
+
+
+def test_one_professional_cannot_be_flooded_from_many_addresses(db, professions):
+    from app.adapters.email.senders import InMemoryEmailSender
+    from app.adapters.urls import PublicUrls
+    from app.domain.errors import TooMany
+    from app.ports.clock import SystemClock
+    from app.services.introductions import IntroductionRequest, IntroductionService
+
+    import pytest
+
+    _published(db, professions)
+    service = IntroductionService(db, clock=SystemClock(), email=InMemoryEmailSender(),
+                                  urls=PublicUrls("http://localhost:3000"))
+
+    def ask(n: int):
+        return service.request(IntroductionRequest(
+            slug="kostas", buyer_name=f"Buyer {n}", buyer_email=f"b{n}@example.com",
+            buyer_phone=f"+44 7700 9001{n:02d}", message=None, source_page=None,
+            consent=True, honeypot=None, ip=f"10.0.0.{n}", user_agent=None,
+        ))
+
+    for n in range(10):
+        ask(n)
+    with pytest.raises(TooMany):
+        ask(10)
