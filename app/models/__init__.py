@@ -20,6 +20,7 @@ from app.models.event import Event
 from app.models.review import Review, ReviewKind
 from app.models.introduction import Introduction, IntroOutcome, IntroStatus
 from app.models.asset import Asset, AssetKind
+from app.models.site_text import SITE_LOCALES, SiteText
 
 __all__ = [
     "Base", "utcnow",
@@ -32,4 +33,5 @@ __all__ = [
     "Review", "ReviewKind",
     "Introduction", "IntroOutcome", "IntroStatus",
     "Asset", "AssetKind",
+    "SITE_LOCALES", "SiteText",
 ]

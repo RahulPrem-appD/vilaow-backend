@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.db import engine
 from app.routers import (
     agreements, assets, assistant, auth, imports, introductions, leads, professionals,
-    professions, public, staff,
+    professions, public, site_texts, staff,
 )
 
 settings = get_settings()
@@ -108,6 +108,8 @@ app.add_middleware(
 api_errors.install(app)
 
 app.include_router(public.router)   # the website reads through this
+# Hand corrections to the website's words, read with every page (item 10).
+app.include_router(site_texts.public_router)
 # The one public *write*: a buyer asking to be introduced. Separate router,
 # same rule — nothing here may read across into the admin schemas.
 app.include_router(introductions.public_router)
@@ -122,6 +124,7 @@ app.include_router(leads.router)
 app.include_router(agreements.router)
 app.include_router(professions.router)
 app.include_router(staff.router)
+app.include_router(site_texts.router)
 # Photos are public; documents are owner-only. The rule lives in the router.
 app.include_router(assets.router)
 
