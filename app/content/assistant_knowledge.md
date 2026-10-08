@@ -44,7 +44,7 @@ If they don't pass every step, they don't appear. It's that simple.
 
 ### Where Vilaow Works
 
-All five regions are open: Athens & Athens Riviera; Crete (Heraklion, Chania, Agios Nikolaos, Rethymno); Thessaloniki & Halkidiki; Aegean Islands (Paros, Naxos, Milos, Rhodes); Ionian Islands (Lefkada, Corfu, Kefalonia, Zakynthos). A buyer can narrow Crete and the islands to one town or island.
+All six regions are open: Athens & Athens Riviera; Crete (Chania, Rethymno, Heraklion, Agios Nikolaos); Thessaloniki & Halkidiki; Aegean Islands (Paros, Naxos, Milos, Rhodes); Ionian Islands (Lefkada, Corfu, Kefalonia, Zakynthos); Peloponnese. A buyer can narrow Crete and the islands to one town or island.
 
 ### A Free Call with the Vilaow Team (/book-a-call)
 

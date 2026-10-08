@@ -51,7 +51,7 @@ GLM_BASE_URL = "https://api.z.ai/api/anthropic"
 
 # Spelled as the homepage's HOME_REGIONS spells them, which is how
 # `Professional.region` stores them (app/src/components/home-regions.ts).
-REGIONS = ("Athens", "Crete", "Thessaloniki", "Aegean Islands", "Ionian Islands")
+REGIONS = ("Athens", "Crete", "Thessaloniki", "Aegean Islands", "Ionian Islands", "Peloponnese")
 
 # How many professionals one search hands back. Few enough to read in a chat
 # bubble; the visitor can ask for more, and the order is random each time.
