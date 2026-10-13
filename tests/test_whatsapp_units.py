@@ -398,7 +398,7 @@ def test_setup_subscribes_submits_only_what_is_missing_and_reports():
     calls = []
 
     def call(method, url, body, token):
-        calls.append((method, url.removeprefix("https://graph.facebook.com/v25.0/waba"), body))
+        calls.append((method, url.removeprefix("https://graph.facebook.com/v25.0/"), body))
         if url.endswith("/subscribed_apps"):
             return 200, '{"success": true}'
         if "/phone_numbers" in url:
@@ -409,13 +409,18 @@ def test_setup_subscribes_submits_only_what_is_missing_and_reports():
                          '"status": "APPROVED"}]}')
         return 200, '{"id": "t1", "status": "PENDING"}'
 
-    result = meta.setup(token="tok", waba_id="waba", call=call)
+    result = meta.setup(token="tok", waba_id="waba", messaging_id="msg", call=call)
 
     assert result["subscribed"] is True
     assert result["phone_numbers"][0]["id"] == "555"
     every = sum(len(t.texts) for t in templates.TEMPLATES.values())
     assert len(result["templates"]) == every
-    submitted = [c for c in calls if c[0] == "POST" and c[1] == "/message_templates"]
+    # The app and the numbers are the WhatsApp account's; the templates are
+    # the Messaging account's.
+    assert ("POST", "waba/subscribed_apps", None) in calls
+    assert any(c[1].startswith("waba/phone_numbers") for c in calls)
+    assert any(c[0] == "GET" and c[1].startswith("msg/message_templates") for c in calls)
+    submitted = [c for c in calls if c[0] == "POST" and c[1] == "msg/message_templates"]
     assert len(submitted) == every - 1          # the approved one is left alone
     first = result["templates"][0]
     assert first == {"name": "vilaow_request_received", "language": "en", "status": "APPROVED"}

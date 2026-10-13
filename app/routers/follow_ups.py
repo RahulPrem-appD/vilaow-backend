@@ -81,6 +81,7 @@ def meta_setup(request: Request, db: DbDep, settings: SettingsDep) -> dict:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Set META_WHATSAPP_TOKEN and META_WABA_ID first")
     return meta.setup(token=settings.meta_whatsapp_token, waba_id=settings.meta_waba_id,
+                      messaging_id=settings.meta_messaging_account_id,
                       version=settings.meta_graph_version)
 
 

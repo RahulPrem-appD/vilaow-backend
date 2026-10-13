@@ -16,7 +16,9 @@ notifications"). Nothing is read before that checks out.
 WhatsApp Manager: it subscribes the app to the WhatsApp account, so replies
 reach the webhook at all; submits every template in templates.py that Meta
 does not have yet; and reports each one's status and the account's phone
-numbers with their ids.
+numbers with their ids. The templates belong to the Messaging account, not
+the WhatsApp account: Meta keeps them and the billing there, and refuses a
+template sent to the WhatsApp account (subcode 2388339, October 2026).
 
 The standard library does the HTTP, as for Twilio.
 """
@@ -207,12 +209,14 @@ def template_request(template: Template, language: str) -> dict:
             "components": components}
 
 
-def setup(*, token: str, waba_id: str, version: str = "v25.0", call: Call = _call) -> dict:
+def setup(*, token: str, waba_id: str, messaging_id: str = "", version: str = "v25.0",
+          call: Call = _call) -> dict:
     """Subscribe the app, submit the missing templates, and say where each stands."""
     base = GRAPH.format(version=version) + waba_id
+    templates_base = GRAPH.format(version=version) + (messaging_id or waba_id)
 
-    def get(path: str) -> tuple[int, dict]:
-        status, body = call("GET", base + path, None, token)
+    def get(path: str, root: str = base) -> tuple[int, dict]:
+        status, body = call("GET", root + path, None, token)
         return status, _json(body)
 
     status, body = call("POST", base + "/subscribed_apps", None, token)
@@ -225,7 +229,8 @@ def setup(*, token: str, waba_id: str, version: str = "v25.0", call: Call = _cal
         for number in numbers.get("data") or []
     ] if status == 200 else _error(numbers)[1] or status
 
-    status, existing = get("/message_templates?fields=name,language,status,rejected_reason&limit=200")
+    status, existing = get("/message_templates?fields=name,language,status,rejected_reason&limit=200",
+                           templates_base)
     if status != 200:
         result["templates"] = _error(existing)[1] or status
         return result
@@ -240,7 +245,7 @@ def setup(*, token: str, waba_id: str, version: str = "v25.0", call: Call = _cal
                 if found.get("rejected_reason") not in (None, "", "NONE"):
                     state = f"{state} ({found['rejected_reason']})"
             else:
-                status, body = call("POST", base + "/message_templates",
+                status, body = call("POST", templates_base + "/message_templates",
                                     template_request(template, language), token)
                 data = _json(body)
                 state = (f"submitted, {data.get('status', 'PENDING')}"

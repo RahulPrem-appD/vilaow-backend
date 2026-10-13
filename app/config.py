@@ -144,6 +144,9 @@ class Settings(BaseSettings):
     # both here and the app's webhook settings.
     meta_whatsapp_token: str = ""
     meta_waba_id: str = ""
+    # The Messaging account beside it, where Meta keeps the templates and the
+    # billing. Only the one-time setup uses it.
+    meta_messaging_account_id: str = ""
     meta_phone_number_id: str = ""
     meta_app_secret: str = ""
     meta_verify_token: str = ""
