@@ -1,13 +1,14 @@
 """HTTP for the WhatsApp follow-up of introductions (change request 12).
 
-Three audiences, so two routers:
+Three audiences, so three routers:
 
   * staff, and the scheduler standing in for them — read the settings, and run
     whatever steps are due. The scheduler has no session, so it sends a shared
     secret in X-Jobs-Key instead; without one, the run needs a signed-in person.
-  * Twilio — tells us about replies and deliveries. These two addresses are on
-    the open internet, so nothing is read until Twilio's signature checks out,
-    and they do not exist at all unless WhatsApp is switched on for real.
+  * Twilio or Meta — tells us about replies and deliveries. These addresses
+    are on the open internet, so nothing is read until the provider's
+    signature checks out, and they do not exist at all unless WhatsApp is
+    switched on for real through that provider.
 
 The rules live in app/services/follow_ups.py; this file reads requests and
 shapes responses.
@@ -15,14 +16,17 @@ shapes responses.
 from __future__ import annotations
 
 import hmac
+import json
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from starlette.concurrency import run_in_threadpool
 
+from app.adapters.whatsapp import meta
 from app.adapters.whatsapp.twilio import signed_by_twilio
 from app.api.deps import (
     DbDep,
     FollowUpServiceDep,
+    MetaWebhookDep,
     SettingsDep,
     StaffDep,
     TwilioWebhook,
@@ -33,6 +37,7 @@ from app.security import current_staff
 
 router = APIRouter(prefix="/api/follow-ups", tags=["follow-ups"])
 webhook_router = APIRouter(prefix="/api/whatsapp/twilio", tags=["whatsapp"])
+meta_router = APIRouter(prefix="/api/whatsapp/meta", tags=["whatsapp"])
 
 # What Twilio expects back from a message webhook: TwiML that says nothing.
 EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
@@ -43,10 +48,7 @@ def follow_up_settings(service: FollowUpServiceDep, _staff: StaffDep) -> FollowU
     return FollowUpSettingsOut.model_validate(service.settings())
 
 
-@router.post("/run")
-def run_due_steps(
-    request: Request, service: FollowUpServiceDep, db: DbDep, settings: SettingsDep,
-) -> dict:
+def _staff_or_scheduler(request: Request, db: DbDep, settings: SettingsDep) -> None:
     key = request.headers.get("x-jobs-key")
     if key is not None:
         # Compared in constant time, and refused outright when no secret is
@@ -56,7 +58,30 @@ def run_due_steps(
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Wrong jobs key")
     else:
         current_staff(request, db)
+
+
+@router.post("/run")
+def run_due_steps(
+    request: Request, service: FollowUpServiceDep, db: DbDep, settings: SettingsDep,
+) -> dict:
+    _staff_or_scheduler(request, db, settings)
     return service.run_due()
+
+
+@router.post("/meta-setup")
+def meta_setup(request: Request, db: DbDep, settings: SettingsDep) -> dict:
+    """Connect Meta's side once: subscribe the app to the WhatsApp account,
+    submit the templates Meta does not have yet, and report each one's status
+    and the account's phone numbers. Safe to run again: it only adds what is
+    missing. Needs only the token and the account id, so it runs while the
+    follow-up is still off — the templates are approved before anything sends.
+    """
+    _staff_or_scheduler(request, db, settings)
+    if not settings.meta_whatsapp_token or not settings.meta_waba_id:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Set META_WHATSAPP_TOKEN and META_WABA_ID first")
+    return meta.setup(token=settings.meta_whatsapp_token, waba_id=settings.meta_waba_id,
+                      version=settings.meta_graph_version)
 
 
 async def _signed_form(request: Request, hook: TwilioWebhook | None) -> dict[str, str]:
@@ -110,3 +135,41 @@ async def twilio_status(
             error_code=fields.get("ErrorCode"),
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── Meta ────────────────────────────────────────────────────────────────────
+@meta_router.get("/webhook")
+def meta_verify(
+    hook: MetaWebhookDep,
+    mode: str | None = Query(None, alias="hub.mode"),
+    token: str | None = Query(None, alias="hub.verify_token"),
+    challenge: str | None = Query(None, alias="hub.challenge"),
+) -> Response:
+    """Meta checking this address is ours, when it is typed into the app."""
+    if hook is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if not (mode == "subscribe" and token and challenge
+            and hmac.compare_digest(token.encode(), hook.verify_token.encode())):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Wrong verify token")
+    return Response(challenge, media_type="text/plain")
+
+
+@meta_router.post("/webhook")
+async def meta_events(
+    request: Request, service: FollowUpServiceDep, hook: MetaWebhookDep,
+) -> Response:
+    """Replies to Vilaow's number, and reports on messages it sent."""
+    if hook is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    body = await request.body()
+    if not meta.signed_by_meta(hook.app_secret, body, request.headers.get("x-hub-signature-256")):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not signed by Meta")
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not JSON") from None
+    for reply in meta.replies(payload):
+        await run_in_threadpool(service.record_reply, transport="meta", **reply)
+    for report in meta.deliveries(payload):
+        await run_in_threadpool(service.record_delivery, provider="Meta", **report)
+    return Response(status_code=status.HTTP_200_OK)

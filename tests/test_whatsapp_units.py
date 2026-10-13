@@ -233,7 +233,9 @@ def _settings(**changes):
     """Every WhatsApp setting given explicitly, so a local .env cannot leak in."""
     values = dict(whatsapp_mode="off", jobs_secret="", twilio_account_sid="",
                   twilio_auth_token="", twilio_whatsapp_from="",
-                  twilio_content_sids="", twilio_webhook_base="")
+                  twilio_content_sids="", twilio_webhook_base="",
+                  meta_whatsapp_token="", meta_waba_id="", meta_phone_number_id="",
+                  meta_app_secret="", meta_verify_token="")
     values.update(changes)
     return Settings(**values)
 
@@ -276,3 +278,155 @@ def test_a_pros_answer_is_read_in_greek_english_and_french():
     assert parse_answer("Called her on Tuesday") == "other"
     assert parse_answer(None, "yes") == "yes"
     assert parse_answer("no", "yes") == "no"
+
+
+# ── Meta's Cloud API (12 October: in place of Twilio) ───────────────────────
+from app.adapters.whatsapp import meta  # noqa: E402
+
+
+def _meta_sender(*answers):
+    """A Meta sender whose requests are kept, and answered in turn."""
+    calls = []
+    queue = list(answers) or [(200, '{"messages": [{"id": "wamid.1"}]}')]
+
+    def call(method, url, body, token):
+        calls.append((method, url, body, token))
+        answer = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return meta.MetaWhatsAppSender(token="tok", phone_number_id="555", call=call), calls
+
+
+def test_meta_sending_is_one_post_with_the_template_and_its_blanks():
+    sender, calls = _meta_sender()
+    result = sender.send(WhatsAppMessage(language="fr", **_THANKS))
+    method, url, body, token = calls[0]
+
+    assert (method, url, token) == ("POST", "https://graph.facebook.com/v25.0/555/messages", "tok")
+    assert body["to"] == "447700900123"
+    assert body["template"]["name"] == "vilaow_request_received"
+    assert body["template"]["language"] == {"code": "fr"}
+    assert body["template"]["components"] == [{"type": "body", "parameters": [
+        {"type": "text", "text": "Sarah"}, {"type": "text", "text": "Kostas"}]}]
+    assert result.ok and result.provider_id == "wamid.1"
+
+
+def test_meta_quick_replies_carry_yes_and_no_whatever_the_language():
+    sender, calls = _meta_sender()
+    sender.send(WhatsAppMessage(to="+306912345678", template="remind_pro", language="el",
+                                variables=("Kostas", "Sarah Mitchell", "+44 7700 900123")))
+    buttons = [c for c in calls[0][2]["template"]["components"] if c["type"] == "button"]
+    assert [(b["index"], b["parameters"][0]["payload"]) for b in buttons] == [("0", "yes"), ("1", "no")]
+
+
+def test_meta_falls_back_to_english_when_the_language_is_not_approved():
+    sender, calls = _meta_sender(
+        (404, '{"error": {"code": 132001, "message": "Template name does not exist in the translation"}}'),
+        (200, '{"messages": [{"id": "wamid.en"}]}'),
+    )
+    result = sender.send(WhatsAppMessage(language="el", **_THANKS))
+    assert [c[2]["template"]["language"]["code"] for c in calls] == ["el", "en"]
+    assert result.ok and result.provider_id == "wamid.en"
+
+
+def test_every_way_meta_can_answer_is_sorted_into_retry_or_stop():
+    message = WhatsAppMessage(language="en", **_THANKS)
+    refused = _meta_sender((400, '{"error": {"code": 131026, "message": "Undeliverable"}}'))[0].send(message)
+    assert not refused.ok and not refused.retry and "131026" in refused.detail
+    assert _meta_sender((503, ""))[0].send(message).retry is True
+    assert _meta_sender((429, "{}"))[0].send(message).retry is True
+    unreachable = _meta_sender(OSError("no route"))[0].send(message)
+    assert not unreachable.ok and unreachable.retry
+
+
+def test_a_meta_signature_is_sha256_of_the_raw_body_under_the_app_secret():
+    import hashlib
+    import hmac as hmac_
+
+    body = b'{"entry": []}'
+    good = "sha256=" + hmac_.new(b"secret", body, hashlib.sha256).hexdigest()
+    assert meta.signed_by_meta("secret", body, good)
+    assert not meta.signed_by_meta("secret", body + b" ", good)       # tampered with
+    assert not meta.signed_by_meta("other", body, good)
+    assert not meta.signed_by_meta("secret", body, good.removeprefix("sha256="))
+    assert not meta.signed_by_meta("secret", body, None)
+    assert not meta.signed_by_meta("", body, good)
+
+
+def test_meta_callbacks_are_read_into_replies_and_delivery_reports():
+    payload = {"entry": [{"changes": [{"field": "messages", "value": {
+        "messages": [
+            {"from": "306912345678", "id": "wamid.r1", "type": "button",
+             "button": {"payload": "yes", "text": "Ναι"}, "context": {"id": "wamid.q1"}},
+            {"from": "447700900123", "id": "wamid.r2", "type": "text", "text": {"body": "not yet"}},
+            {"from": "447700900123", "id": "wamid.r3", "type": "image"},
+        ],
+        "statuses": [
+            {"id": "wamid.q1", "status": "read"},
+            {"id": "wamid.q2", "status": "failed", "errors": [{"code": 131026}]},
+        ],
+    }}]}]}
+    assert list(meta.replies(payload)) == [
+        {"number": "+306912345678", "text": "Ναι", "button": "yes",
+         "replied_to": "wamid.q1", "provider_id": "wamid.r1"},
+        {"number": "+447700900123", "text": "not yet", "button": None,
+         "replied_to": None, "provider_id": "wamid.r2"},
+        {"number": "+447700900123", "text": None, "button": None,
+         "replied_to": None, "provider_id": "wamid.r3"},
+    ]
+    assert list(meta.deliveries(payload)) == [
+        {"provider_id": "wamid.q1", "status": "read", "error_code": None},
+        {"provider_id": "wamid.q2", "status": "failed", "error_code": "131026"},
+    ]
+    assert list(meta.replies({"object": "page"})) == []
+
+
+def test_every_template_is_submitted_as_meta_takes_it():
+    request = meta.template_request(templates.TEMPLATES["check_buyer"], "el")
+    assert request["name"] == "vilaow_contact_check"
+    assert (request["language"], request["category"]) == ("el", "UTILITY")
+    body, buttons = request["components"]
+    assert body["text"] == templates.TEMPLATES["check_buyer"].texts["el"]
+    assert body["example"] == {"body_text": [["Sarah", "Kostas Papadopoulos"]]}
+    assert [b["text"] for b in buttons["buttons"]] == ["Ναι", "Όχι"]
+    assert len(meta.template_request(templates.TEMPLATES["thank_buyer"], "en")["components"]) == 1
+
+
+def test_setup_subscribes_submits_only_what_is_missing_and_reports():
+    calls = []
+
+    def call(method, url, body, token):
+        calls.append((method, url.removeprefix("https://graph.facebook.com/v25.0/waba"), body))
+        if url.endswith("/subscribed_apps"):
+            return 200, '{"success": true}'
+        if "/phone_numbers" in url:
+            return 200, ('{"data": [{"id": "555", "display_phone_number": "+30 697 674 6506", '
+                         '"verified_name": "Vilaow", "status": "CONNECTED"}]}')
+        if method == "GET":
+            return 200, ('{"data": [{"name": "vilaow_request_received", "language": "en", '
+                         '"status": "APPROVED"}]}')
+        return 200, '{"id": "t1", "status": "PENDING"}'
+
+    result = meta.setup(token="tok", waba_id="waba", call=call)
+
+    assert result["subscribed"] is True
+    assert result["phone_numbers"][0]["id"] == "555"
+    every = sum(len(t.texts) for t in templates.TEMPLATES.values())
+    assert len(result["templates"]) == every
+    submitted = [c for c in calls if c[0] == "POST" and c[1] == "/message_templates"]
+    assert len(submitted) == every - 1          # the approved one is left alone
+    first = result["templates"][0]
+    assert first == {"name": "vilaow_request_received", "language": "en", "status": "APPROVED"}
+
+
+def test_meta_mode_names_each_setting_that_is_missing():
+    missing = _settings(whatsapp_mode="meta")._whatsapp_problems()
+    for name in ("META_WHATSAPP_TOKEN", "META_WABA_ID", "META_PHONE_NUMBER_ID",
+                 "META_APP_SECRET", "META_VERIFY_TOKEN"):
+        assert any(name in p for p in missing), name
+    ready = _settings(whatsapp_mode="meta", meta_whatsapp_token="t", meta_waba_id="w",
+                      meta_phone_number_id="p", meta_app_secret="s",
+                      meta_verify_token="v" * 16)
+    assert ready._whatsapp_problems() == []

@@ -188,6 +188,13 @@ def get_whatsapp_sender(settings: SettingsDep) -> WhatsAppSender | None:
         return _twilio(settings.twilio_account_sid, settings.twilio_auth_token,
                        settings.twilio_whatsapp_from, settings.twilio_content_sids,
                        f"{base}/api/whatsapp/twilio/status" if base else None)
+    if (settings.whatsapp_mode == "meta" and settings.meta_whatsapp_token
+            and settings.meta_phone_number_id):
+        from app.adapters.whatsapp.meta import MetaWhatsAppSender
+
+        return MetaWhatsAppSender(token=settings.meta_whatsapp_token,
+                                  phone_number_id=settings.meta_phone_number_id,
+                                  version=settings.meta_graph_version)
     return None
 
 
@@ -316,3 +323,21 @@ def get_assistant(settings: SettingsDep, client: AssistantClientDep) -> "Assista
 AssistantDep = Annotated["Assistant", Depends(get_assistant)]
 
 StaffDep = Annotated[Staff, Depends(current_staff)]
+
+
+@dataclass(frozen=True)
+class MetaWebhook:
+    """What checking Meta's callbacks needs: the secret every POST is signed
+    with, and the token its set-up GET must present."""
+    app_secret: str
+    verify_token: str
+
+
+def get_meta_webhook(settings: SettingsDep) -> MetaWebhook | None:
+    if (settings.whatsapp_mode != "meta" or not settings.meta_app_secret
+            or len(settings.meta_verify_token) < 16):
+        return None
+    return MetaWebhook(settings.meta_app_secret, settings.meta_verify_token)
+
+
+MetaWebhookDep = Annotated[MetaWebhook | None, Depends(get_meta_webhook)]

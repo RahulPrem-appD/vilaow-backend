@@ -57,7 +57,8 @@ from app.models import (
 from app.ports.clock import Clock
 from app.ports.whatsapp import WhatsAppMessage, WhatsAppSender
 
-MODES = ("off", "pretend", "twilio")
+MODES = ("off", "pretend", "twilio", "meta")
+REAL = ("twilio", "meta")
 LANGUAGES = ("en", "el", "fr")
 SENT = ("sent", "delivered", "read")
 OUTBOUND = ("thank_buyer", "request_to_pro", "remind_pro", "check_buyer")
@@ -109,13 +110,13 @@ class FollowUpService:
 
     @property
     def on(self) -> bool:
-        return self._config.mode in ("pretend", "twilio") and self._sender is not None
+        return self._config.mode in ("pretend", *REAL) and self._sender is not None
 
     @property
     def replaces_email(self) -> bool:
         """For real, WhatsApp is the only channel: the client chose "WhatsApp
         only, no email". Pretending sends nothing, so the emails carry on."""
-        return self.on and self._config.mode == "twilio"
+        return self.on and self._config.mode in REAL
 
     # ── planning ────────────────────────────────────────────────────────────
     def start(self, intro: Introduction) -> None:
@@ -228,7 +229,8 @@ class FollowUpService:
 
     # ── replies ─────────────────────────────────────────────────────────────
     def record_reply(self, *, number: str, text: str | None, button: str | None,
-                     replied_to: str | None, provider_id: str | None) -> IntroductionStep | None:
+                     replied_to: str | None, provider_id: str | None,
+                     transport: str = "twilio") -> IntroductionStep | None:
         """A WhatsApp message from a buyer or a professional.
 
         Matched to the question it answers: exactly, by the message it replies
@@ -240,13 +242,13 @@ class FollowUpService:
             seen = self._db.scalar(
                 select(IntroductionStep).where(IntroductionStep.provider_id == provider_id))
             if seen is not None:
-                return seen   # Twilio retried the webhook: already recorded
+                return seen   # the webhook was retried: already recorded
         asked = self._question_for(number, replied_to)
         if asked is None:
             return None
         try:
             return self._answer(asked, parse_answer(button, text), text=text, number=number,
-                                provider_id=provider_id, transport="twilio")
+                                provider_id=provider_id, transport=transport)
         except IntegrityError:
             # The same reply, delivered twice at the same moment: the other
             # delivery stored it first, and acted on it.
@@ -376,7 +378,8 @@ class FollowUpService:
                             transport="pretend")
 
     # ── delivery reports ────────────────────────────────────────────────────
-    def record_delivery(self, *, provider_id: str, status: str, error_code: str | None) -> None:
+    def record_delivery(self, *, provider_id: str, status: str, error_code: str | None,
+                        provider: str = "Twilio") -> None:
         step = self._db.scalar(select(IntroductionStep).where(
             IntroductionStep.provider_id == provider_id, IntroductionStep.kind.in_(OUTBOUND)))
         if step is None or step.status == "failed":
@@ -385,7 +388,7 @@ class FollowUpService:
         rank = {"sent": 1, "delivered": 2, "read": 3}
         if status in ("failed", "undelivered"):
             self._finish(step, now, "failed",
-                         f"WhatsApp could not deliver it (Twilio error {error_code or 'unknown'})")
+                         f"WhatsApp could not deliver it ({provider} error {error_code or 'unknown'})")
         elif rank.get(status, 0) > rank.get(step.status, 0):
             # Only ever forward: a late "delivered" never undoes "read".
             step.status = status

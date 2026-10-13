@@ -114,7 +114,8 @@ class Settings(BaseSettings):
     # The WhatsApp follow-up of an introduction (change request 12;
     # app/services/follow_ups.py). "off" until WhatsApp is connected;
     # "pretend" writes every step down and sends nothing, for trying the flow;
-    # "twilio" sends for real, and then replaces the introduction emails.
+    # "twilio" or "meta" sends for real, and then replaces the introduction
+    # emails.
     whatsapp_mode: str = "off"
     # The professionals' messages: "el" Greek or "en" English. Either falls
     # back to English when that language's template is not approved yet.
@@ -136,6 +137,17 @@ class Settings(BaseSettings):
     # Its signature covers the exact address, which behind Render's proxy the
     # request itself cannot be trusted to report.
     twilio_webhook_base: str = ""
+    # Meta's Cloud API directly, for "meta" mode (app/adapters/whatsapp/meta.py).
+    # The token is a system user's, with whatsapp_business_messaging and
+    # whatsapp_business_management; the app secret checks Meta's signature on
+    # every callback; the verify token is any long random string, typed into
+    # both here and the app's webhook settings.
+    meta_whatsapp_token: str = ""
+    meta_waba_id: str = ""
+    meta_phone_number_id: str = ""
+    meta_app_secret: str = ""
+    meta_verify_token: str = ""
+    meta_graph_version: str = "v25.0"
     # Lets a scheduler run the due steps (POST /api/follow-ups/run with the
     # header X-Jobs-Key) without a staff login. Empty: only staff can.
     jobs_secret: str = ""
@@ -292,13 +304,24 @@ class Settings(BaseSettings):
         someone will be in touch — so it is a deploy that does not go live.
         """
         problems: list[str] = []
-        if self.whatsapp_mode not in ("off", "pretend", "twilio"):
-            problems.append(f"WHATSAPP_MODE is {self.whatsapp_mode!r} — use off, pretend or twilio")
+        if self.whatsapp_mode not in ("off", "pretend", "twilio", "meta"):
+            problems.append(
+                f"WHATSAPP_MODE is {self.whatsapp_mode!r} — use off, pretend, twilio or meta")
         if self.jobs_secret and len(self.jobs_secret) < 32:
             problems.append(
                 "JOBS_SECRET is shorter than 32 characters — it lets anyone who "
                 "knows it run the follow-up, so it must not be guessable"
             )
+        if self.whatsapp_mode == "meta":
+            for name in ("meta_whatsapp_token", "meta_waba_id", "meta_phone_number_id",
+                         "meta_app_secret"):
+                if not getattr(self, name):
+                    problems.append(f"{name.upper()} is unset, and WHATSAPP_MODE is meta")
+            if len(self.meta_verify_token) < 16:
+                problems.append(
+                    "META_VERIFY_TOKEN is shorter than 16 characters — Meta's webhook "
+                    "check sends it, and a short one could be guessed")
+            return problems
         if self.whatsapp_mode != "twilio":
             return problems
         for name in ("twilio_account_sid", "twilio_auth_token", "twilio_whatsapp_from"):

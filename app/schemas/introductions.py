@@ -98,7 +98,7 @@ class PretendReply(ORMModel):
     answer: Literal["yes", "no"]
 
 class FollowUpSettingsOut(ORMModel):
-    mode: Literal["off", "pretend", "twilio"]
+    mode: Literal["off", "pretend", "twilio", "meta"]
     first_reminder_hours: float
     reminder_every_hours: float
     max_reminders: int

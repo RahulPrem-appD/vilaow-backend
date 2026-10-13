@@ -39,7 +39,7 @@ class WhatsAppSender(Protocol):
     must never undo the introduction that caused it.
     """
 
-    # "twilio" or "pretend", recorded on every step it sends.
+    # "twilio", "meta" or "pretend", recorded on every step it sends.
     transport: str
 
     def send(self, message: WhatsAppMessage) -> WhatsAppResult: ...

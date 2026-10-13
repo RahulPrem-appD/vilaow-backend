@@ -114,6 +114,7 @@ app.include_router(site_texts.public_router)
 # same rule — nothing here may read across into the admin schemas.
 app.include_router(introductions.public_router)
 app.include_router(follow_ups.webhook_router)   # Twilio, signature-checked
+app.include_router(follow_ups.meta_router)      # Meta, signature-checked
 # The website assistant: public, paid per message, so gated by a code while it
 # is a preview and rate limited always.
 app.include_router(assistant.router)

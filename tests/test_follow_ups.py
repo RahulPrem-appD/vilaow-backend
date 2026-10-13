@@ -577,3 +577,112 @@ def test_a_reminder_sent_at_the_moment_of_the_yes_is_not_recorded_as_cancelled(
     statuses = [s.status for s in _steps(db) if s.kind == "remind_pro"]
     assert statuses == ["sent", "sent", "cancelled"]       # sent stays sent
     assert _intro(db).pro_confirmed_at is not None
+
+
+# ── through Meta directly (12 October) ──────────────────────────────────────
+from app.api.deps import MetaWebhook, get_meta_webhook  # noqa: E402
+
+META = MetaWebhook(app_secret="meta-secret", verify_token="v" * 24)
+
+
+@pytest.fixture
+def meta_on(clock):
+    from app.main import app
+
+    sender = RecordingWhatsAppSender()
+    _switch_on("meta", sender)
+    app.dependency_overrides[get_meta_webhook] = lambda: META
+    yield sender
+    app.dependency_overrides.pop(get_meta_webhook, None)
+    app.dependency_overrides.pop(get_twilio_webhook, None)
+
+
+def _meta_post(client, value: dict, secret: str = META.app_secret):
+    import hashlib
+    import hmac as hmac_
+    import json as json_
+
+    body = json_.dumps({"object": "whatsapp_business_account",
+                        "entry": [{"changes": [{"field": "messages", "value": value}]}]}).encode()
+    sig = "sha256=" + hmac_.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return client.post("/api/whatsapp/meta/webhook", content=body,
+                       headers={"X-Hub-Signature-256": sig, "Content-Type": "application/json"})
+
+
+def test_meta_checks_the_webhook_with_our_verify_token(client, meta_on):
+    path = "/api/whatsapp/meta/webhook"
+    ok = client.get(path, params={"hub.mode": "subscribe", "hub.verify_token": META.verify_token,
+                                  "hub.challenge": "1158201444"})
+    assert ok.status_code == 200 and ok.text == "1158201444"
+    wrong = client.get(path, params={"hub.mode": "subscribe", "hub.verify_token": "guess",
+                                     "hub.challenge": "1"})
+    assert wrong.status_code == 403
+
+
+def test_a_yes_tapped_on_meta_marks_a_success(client, db, professions, meta_on, clock, as_caller):
+    _published(db, professions)
+    _ask(client)
+    clock.advance(timedelta(hours=4))
+    _run(as_caller)
+    asked = _step(db, "remind_pro", 1).provider_id
+
+    response = _meta_post(client, {"messages": [{
+        "from": PRO.lstrip("+"), "id": "wamid.reply1", "type": "button",
+        "button": {"payload": "yes", "text": "Ναι"}, "context": {"id": asked}}]})
+    assert response.status_code == 200, response.text
+
+    intro = _intro(db)
+    assert intro.pro_confirmed_at is not None
+    assert intro.outcome.value == "professional_contacted"
+    reply = _step(db, "pro_replied")
+    assert (reply.answer, reply.transport) == ("yes", "meta")
+
+    # Meta retries a callback it thinks failed: the same reply counts once.
+    _meta_post(client, {"messages": [{
+        "from": PRO.lstrip("+"), "id": "wamid.reply1", "type": "button",
+        "button": {"payload": "yes", "text": "Ναι"}, "context": {"id": asked}}]})
+    assert [s.kind for s in _steps(db)].count("pro_replied") == 1
+
+
+def test_meta_delivery_reports_move_a_step_and_name_the_error(client, db, professions, meta_on):
+    _published(db, professions)
+    _ask(client)
+    _meta_post(client, {"statuses": [
+        {"id": _step(db, "request_to_pro").provider_id, "status": "read"},
+        {"id": _step(db, "thank_buyer").provider_id, "status": "failed",
+         "errors": [{"code": 131026}]},
+    ]})
+    assert _step(db, "request_to_pro").status == "read"
+    thanks = _step(db, "thank_buyer")
+    assert thanks.status == "failed" and "Meta error 131026" in thanks.detail
+
+
+def test_a_callback_meta_did_not_sign_is_refused(client, db, professions, meta_on):
+    _published(db, professions)
+    _ask(client)
+    forged = {"messages": [{"from": PRO.lstrip("+"), "id": "wamid.forged", "type": "text",
+                            "text": {"body": "yes"}}]}
+    assert _meta_post(client, forged, secret="not-the-secret").status_code == 403
+    assert client.post("/api/whatsapp/meta/webhook", json={"entry": []}).status_code == 403
+    assert _intro(db).pro_confirmed_at is None
+
+
+def test_metas_address_does_not_exist_until_whatsapp_is_real_through_meta(client, whatsapp):
+    path = "/api/whatsapp/meta/webhook"
+    assert client.get(path, params={"hub.mode": "subscribe", "hub.verify_token": "x",
+                                    "hub.challenge": "1"}).status_code == 404
+    assert client.post(path, json={"entry": []}).status_code == 404
+
+
+def test_meta_setup_needs_the_meta_settings(as_caller):
+    """Who may run it is the same check as running the due steps, tested above."""
+    from app.main import app
+
+    def no_meta():
+        return get_settings().model_copy(update={"meta_whatsapp_token": "", "meta_waba_id": ""})
+
+    app.dependency_overrides[get_settings] = no_meta
+    try:
+        assert as_caller.post("/api/follow-ups/meta-setup").status_code == 409
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
