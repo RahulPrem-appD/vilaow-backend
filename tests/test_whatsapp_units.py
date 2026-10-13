@@ -430,3 +430,14 @@ def test_meta_mode_names_each_setting_that_is_missing():
                       meta_phone_number_id="p", meta_app_secret="s",
                       meta_verify_token="v" * 16)
     assert ready._whatsapp_problems() == []
+
+
+def test_a_meta_refusal_names_its_real_reason_not_just_invalid_parameter():
+    code, reason = meta._error({"error": {
+        "message": "Invalid parameter", "code": 100, "error_subcode": 2388024,
+        "error_user_title": "Content in this language already exists",
+        "error_user_msg": "Your template already has content in English."}})
+    assert code == 100
+    assert reason == ("Content in this language already exists: Your template already "
+                      "has content in English. (subcode 2388024)")
+    assert meta._error({"error": {"message": "Invalid parameter"}})[1] == "Invalid parameter"

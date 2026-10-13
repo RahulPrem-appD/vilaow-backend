@@ -65,10 +65,16 @@ def _json(body: str) -> dict:
 
 
 def _error(data: dict) -> tuple[int | None, str]:
+    """Meta's code, and its reason in the most specific words it gave: its
+    "message" alone is often just "Invalid parameter"."""
     error = data.get("error") if isinstance(data.get("error"), dict) else {}
     details = (error.get("error_data") or {}).get("details") if isinstance(
         error.get("error_data"), dict) else None
-    return error.get("code"), details or error.get("message") or ""
+    parts = [error.get("error_user_title"), error.get("error_user_msg") or details]
+    reason = ": ".join(str(p) for p in parts if p) or error.get("message") or ""
+    if error.get("error_subcode"):
+        reason += f" (subcode {error['error_subcode']})"
+    return error.get("code"), reason
 
 
 class MetaWhatsAppSender:
