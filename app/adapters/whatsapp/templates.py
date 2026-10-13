@@ -108,8 +108,8 @@ TEMPLATES: dict[str, Template] = {t.key: t for t in (
                   "from {{2}} yet?",
             "el": "Γεια σας {{1}}, ένας σύντομος έλεγχος από το Vilaow για το αίτημά σας. "
                   "Έχει επικοινωνήσει ήδη μαζί σας ο επαγγελματίας που επιλέξατε ({{2}});",
-            "fr": "Bonjour {{1}}, petite vérification de la part de Vilaow au sujet de votre "
-                  "demande. Avez-vous déjà eu des nouvelles de {{2}} ?",
+            "fr": "Bonjour {{1}}, petite vérification de la part de Vilaow. Avez-vous déjà "
+                  "eu des nouvelles de {{2}} au sujet de votre demande ?",
         },
         buttons=YES_NO,
         samples=(("the buyer's first name", "Sarah"),

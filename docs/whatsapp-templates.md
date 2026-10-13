@@ -123,7 +123,7 @@ Buttons: `Ναι` (ID `yes`) · `Όχι` (ID `no`)
 
 **French**
 
-> Bonjour {{1}}, petite vérification de la part de Vilaow au sujet de votre demande. Avez-vous déjà eu des nouvelles de {{2}} ?
+> Bonjour {{1}}, petite vérification de la part de Vilaow. Avez-vous déjà eu des nouvelles de {{2}} au sujet de votre demande ?
 
 Buttons: `Oui` (ID `yes`) · `Non` (ID `no`)
 

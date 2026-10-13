@@ -69,7 +69,11 @@ def test_every_template_in_every_language_keeps_metas_rules():
         for language, text in template.texts.items():
             assert "\n" not in text and "\t" not in text
             stripped = text.strip()
-            assert not stripped.startswith("{{") and not stripped.endswith("}}")
+            # Meta counts a blank with only punctuation after it as at the end:
+            # French "… de {{2}} ?" was refused (12 October). A closing bracket
+            # is text: Greek "({{2}});" was accepted.
+            assert not re.match(r"^[\s.,;:!?¿¡…]*\{\{", stripped), (template.key, language)
+            assert not re.search(r"\}\}[\s.,;:!?…]*$", stripped), (template.key, language)
             blanks = {int(n) for n in re.findall(r"\{\{(\d+)\}\}", text)}
             assert sorted(blanks) == list(range(1, len(blanks) + 1))
             assert re.search(r"\}\}\s*\{\{", text) is None
