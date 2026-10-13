@@ -229,6 +229,9 @@ def setup(*, token: str, waba_id: str, messaging_id: str = "", version: str = "v
         for number in numbers.get("data") or []
     ] if status == 200 else _error(numbers)[1] or status
 
+    # Which account the templates went to, so a refusal can be read against it.
+    result["templates_account"] = (f"Messaging account {messaging_id}" if messaging_id
+                                   else f"WhatsApp account {waba_id} (no Messaging account set)")
     status, existing = get("/message_templates?fields=name,language,status,rejected_reason&limit=200",
                            templates_base)
     if status != 200:

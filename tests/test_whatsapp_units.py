@@ -412,6 +412,7 @@ def test_setup_subscribes_submits_only_what_is_missing_and_reports():
     result = meta.setup(token="tok", waba_id="waba", messaging_id="msg", call=call)
 
     assert result["subscribed"] is True
+    assert result["templates_account"] == "Messaging account msg"
     assert result["phone_numbers"][0]["id"] == "555"
     every = sum(len(t.texts) for t in templates.TEMPLATES.values())
     assert len(result["templates"]) == every
