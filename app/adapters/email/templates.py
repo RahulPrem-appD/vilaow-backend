@@ -222,3 +222,27 @@ def review_request(*, to: str, buyer_name: str, professional_name: str, link: st
         f"or remove them on request.</p>"
     )
     return Message(to=to, subject=f"How did it go with {professional_name}?", text=text, html=html)
+
+
+def whatsapp_alert(*, to: str, who: str, number: str, text: str, link: str) -> Message:
+    """To staff, when somebody writes to Vilaow's WhatsApp number. `who` is
+    whatever name they gave WhatsApp, so it is kept to one short line."""
+    who = " ".join(who.split())[:60] or number
+    excerpt = text if len(text) <= 300 else text[:299].rstrip() + "…"
+    body = (
+        f"{who} ({number}) wrote to Vilaow on WhatsApp:\n\n"
+        f"{excerpt}\n\n"
+        f"Read it and answer in the admin:\n{link}\n\n"
+        f"WhatsApp lets you answer in your own words for 24 hours after their message.\n"
+    )
+    html = _wrap(
+        f"<p><b>{e(who)}</b> ({e(number)}) wrote to Vilaow on WhatsApp:</p>"
+        f'<blockquote style="margin:0 0 16px;padding:10px 14px;border-left:3px solid #1257a8;'
+        f'background:#f6f6f2;white-space:pre-wrap">{e(excerpt)}</blockquote>'
+        f'<p><a href="{e(link)}" style="display:inline-block;background:#0b3a6b;color:#fff;'
+        f'text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600">'
+        f"Open the inbox</a></p>"
+        f'<p style="color:#656e77;font-size:13px">WhatsApp lets you answer in your own words '
+        f"for 24 hours after their message.</p>"
+    )
+    return Message(to=to, subject=f"New WhatsApp message from {who}", text=body, html=html)

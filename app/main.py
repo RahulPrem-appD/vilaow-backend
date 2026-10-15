@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.db import engine
 from app.routers import (
     agreements, assets, assistant, auth, follow_ups, imports, introductions, leads, professionals,
-    professions, public, site_texts, staff,
+    professions, public, site_texts, staff, whatsapp_inbox,
 )
 
 settings = get_settings()
@@ -120,6 +120,7 @@ app.include_router(follow_ups.meta_router)      # Meta, signature-checked
 app.include_router(assistant.router)
 app.include_router(introductions.router)
 app.include_router(follow_ups.router)
+app.include_router(whatsapp_inbox.router)
 app.include_router(auth.router)
 app.include_router(professionals.router)
 app.include_router(imports.router)

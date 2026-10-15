@@ -17,5 +17,6 @@ from app.schemas.imports import *  # noqa: F401,F403
 from app.schemas.leads import *  # noqa: F401,F403
 from app.schemas.agreements import *  # noqa: F401,F403
 from app.schemas.introductions import *  # noqa: F401,F403
+from app.schemas.whatsapp import *  # noqa: F401,F403
 from app.schemas.verified_reviews import *  # noqa: F401,F403
 from app.schemas.assets import *  # noqa: F401,F403

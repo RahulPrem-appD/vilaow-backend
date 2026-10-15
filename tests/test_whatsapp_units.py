@@ -370,6 +370,10 @@ def test_meta_callbacks_are_read_into_replies_and_delivery_reports():
         "statuses": [
             {"id": "wamid.q1", "status": "read"},
             {"id": "wamid.q2", "status": "failed", "errors": [{"code": 131026}]},
+            {"id": "wamid.q3", "status": "failed", "errors": [{
+                "code": 131047, "title": "Re-engagement message",
+                "error_data": {"details": "Message failed to send because more than 24 hours "
+                                          "have passed since the customer last replied."}}]},
         ],
     }}]}]}
     assert list(meta.replies(payload)) == [
@@ -381,8 +385,13 @@ def test_meta_callbacks_are_read_into_replies_and_delivery_reports():
          "replied_to": None, "provider_id": "wamid.r3"},
     ]
     assert list(meta.deliveries(payload)) == [
-        {"provider_id": "wamid.q1", "status": "read", "error_code": None},
-        {"provider_id": "wamid.q2", "status": "failed", "error_code": "131026"},
+        {"provider_id": "wamid.q1", "status": "read", "error_code": None, "error_title": None},
+        {"provider_id": "wamid.q2", "status": "failed", "error_code": "131026",
+         "error_title": None},
+        # Meta's most specific words, for the inbox.
+        {"provider_id": "wamid.q3", "status": "failed", "error_code": "131047",
+         "error_title": "Message failed to send because more than 24 hours have passed "
+                        "since the customer last replied."},
     ]
     assert list(meta.replies({"object": "page"})) == []
 

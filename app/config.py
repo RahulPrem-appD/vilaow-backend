@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     # ASSISTANT_PUBLIC=true to drop the code once it launches.
     assistant_access_code: str = ""
     assistant_public: bool = False
+    # The same assistant answering people who write to Vilaow's WhatsApp
+    # number (app/services/whatsapp_inbox.py). Off unless set: anyone can
+    # write to the number, and every answer is paid for. It needs the
+    # assistant's key too; the access code above is for the website only.
+    whatsapp_ai_replies: bool = False
 
     # The WhatsApp follow-up of an introduction (change request 12;
     # app/services/follow_ups.py). "off" until WhatsApp is connected;

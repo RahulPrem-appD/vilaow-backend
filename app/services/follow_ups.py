@@ -48,6 +48,7 @@ from app.domain.errors import Conflict, Invalid, NotFound
 from app.domain.phones import Reach, buyer_whatsapp, professional_whatsapp
 from app.models import (
     Event,
+    InboxMessage,
     Introduction,
     IntroductionStep,
     IntroOutcome,
@@ -111,6 +112,11 @@ class FollowUpService:
     @property
     def on(self) -> bool:
         return self._config.mode in ("pretend", *REAL) and self._sender is not None
+
+    @property
+    def mode(self) -> str:
+        """The mode it is really running in: "off" when it cannot send."""
+        return self._config.mode if self.on else "off"
 
     @property
     def replaces_email(self) -> bool:
@@ -186,14 +192,23 @@ class FollowUpService:
         step.number = reach.number
         step.transport = self._sender.transport
         step.tries = (step.tries or 0) + 1
-        result = self._sender.send(WhatsAppMessage(
+        message = WhatsAppMessage(
             to=reach.number,
             template=step.kind,
             language=self._language(step, intro),
             variables=templates.variables(step.kind, intro, professional),
-        ))
+        )
+        result = self._sender.send(message)
         if result.ok:
             step.provider_id = result.provider_id
+            if step.transport != "pretend":
+                # The staff inbox shows it in the conversation with this person.
+                self._db.add(InboxMessage(
+                    number=reach.number, direction="out", kind="template", template=step.kind,
+                    body=templates.render(step.kind, message.language, message.variables),
+                    status="sent", provider_id=result.provider_id, sent_by="follow-up",
+                    introduction_id=intro.id, at=now,
+                ))
             # The words are kept only when nothing was sent, so the admin can
             # read what would have gone. Sent for real, they are on the phone.
             return self._finish(step, now, "sent",
@@ -405,7 +420,7 @@ class FollowUpService:
             IntroductionStep.due_at < self._clock.now() - LATE_AFTER,
         )) or 0
         return {
-            "mode": self._config.mode if self.on else "off",
+            "mode": self.mode,
             "first_reminder_hours": policy.first_reminder.total_seconds() / 3600,
             "reminder_every_hours": policy.reminder_every.total_seconds() / 3600,
             "max_reminders": policy.max_reminders,

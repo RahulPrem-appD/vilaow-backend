@@ -4,7 +4,8 @@ Sending is one POST to the Graph API's messages endpoint for Vilaow's number:
 the approved template by name and language, its blanks as body parameters,
 and a payload for each quick-reply button, so a tap comes back as "yes" or
 "no" whatever language its label was in (Meta's docs, "Send message
-templates").
+templates"). Free text is the same POST with a text body, and Meta accepts it
+only within 24 hours of the person's last message.
 
 Meta calls back on one address for everything — replies and delivery reports
 alike — and checks it first with a GET carrying a token we chose. Every POST is
@@ -31,6 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
+from datetime import datetime, timezone
 
 from app.adapters.whatsapp.templates import TEMPLATES, Template
 from app.ports.whatsapp import WhatsAppMessage, WhatsAppResult
@@ -108,15 +110,25 @@ class MetaWhatsAppSender:
         }
 
     def send(self, message: WhatsAppMessage) -> WhatsAppResult:
-        result, code = self._send(message, message.language)
+        result, code = self._post(self._payload(message, message.language))
         if code == NO_TRANSLATION and message.language != "en":
-            result, _ = self._send(message, "en")
+            result, _ = self._post(self._payload(message, "en"))
         return result
 
-    def _send(self, message: WhatsAppMessage, language: str) -> tuple[WhatsAppResult, int | None]:
+    def send_text(self, to: str, text: str) -> WhatsAppResult:
+        """Free text. Meta refuses it outside the 24 hours, with its reason."""
+        return self._post({
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to.lstrip("+"),
+            "type": "text",
+            # A link to a guide shows its preview; nothing else needs one.
+            "text": {"body": text, "preview_url": "https://" in text},
+        })[0]
+
+    def _post(self, payload: dict) -> tuple[WhatsAppResult, int | None]:
         try:
-            status, body = self._call("POST", self._url, self._payload(message, language),
-                                      self._token)
+            status, body = self._call("POST", self._url, payload, self._token)
         except OSError as error:   # unreachable, or timed out: worth another try
             return WhatsAppResult(False, f"Could not reach Meta ({type(error).__name__})",
                                   retry=True), None
@@ -143,30 +155,64 @@ def signed_by_meta(app_secret: str, body: bytes, header: str | None) -> bool:
                                header.removeprefix("sha256=").encode("ascii", "replace"))
 
 
-def replies(payload: dict) -> Iterator[dict]:
-    """Each message somebody sent Vilaow's number, as record_reply takes it."""
+# Media that can carry a caption, as Meta names them.
+_CAPTIONED = ("image", "video", "document")
+
+
+def messages(payload: dict) -> Iterator[dict]:
+    """Each message somebody sent Vilaow's number, with all the inbox keeps.
+
+    `text` is the words: what was typed, a button's label, a caption, an
+    emoji reaction. `at` is WhatsApp's time for it, when it gave one.
+    """
     for value in _values(payload):
+        names = {str(c.get("wa_id") or ""): (c.get("profile") or {}).get("name")
+                 for c in value.get("contacts") or [] if isinstance(c, dict)}
         for message in value.get("messages") or []:
             sender = str(message.get("from") or "")
             if not sender:
                 continue
-            kind = message.get("type")
+            kind = str(message.get("type") or "unknown")
+            part = message.get(kind) if isinstance(message.get(kind), dict) else {}
             text = button = None
             if kind == "text":
-                text = (message.get("text") or {}).get("body")
+                text = part.get("body")
             elif kind == "button":   # a template's quick reply
-                button = (message.get("button") or {}).get("payload")
-                text = (message.get("button") or {}).get("text")
+                button, text = part.get("payload"), part.get("text")
             elif kind == "interactive":
-                reply = (message.get("interactive") or {}).get("button_reply") or {}
+                reply = part.get("button_reply") or part.get("list_reply") or {}
                 button, text = reply.get("id"), reply.get("title")
+            elif kind in _CAPTIONED:
+                text = part.get("caption")
+            elif kind == "reaction":
+                text = part.get("emoji")
+            elif kind == "location":
+                text = ", ".join(str(part[k]) for k in ("name", "address") if part.get(k)) or None
             yield {
                 "number": "+" + sender.lstrip("+"),
+                "kind": kind[:16],
                 "text": text,
                 "button": button,
                 "replied_to": (message.get("context") or {}).get("id"),
                 "provider_id": message.get("id"),
+                "profile_name": names.get(sender.lstrip("+")),
+                "at": _time(message.get("timestamp")),
             }
+
+
+def replies(payload: dict) -> Iterator[dict]:
+    """Each message somebody sent Vilaow's number, as record_reply takes it."""
+    for message in messages(payload):
+        yield {key: message[key] for key in
+               ("number", "text", "button", "replied_to", "provider_id")}
+
+
+def _time(stamp: object) -> datetime | None:
+    """Meta's seconds since 1970, as a time; None for anything else."""
+    try:
+        return datetime.fromtimestamp(int(str(stamp)), tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
 
 
 def deliveries(payload: dict) -> Iterator[dict]:
@@ -176,11 +222,16 @@ def deliveries(payload: dict) -> Iterator[dict]:
             if not report.get("id") or not report.get("status"):
                 continue
             errors = report.get("errors") or [{}]
-            code = errors[0].get("code") if isinstance(errors[0], dict) else None
+            error = errors[0] if isinstance(errors[0], dict) else {}
+            code = error.get("code")
+            details = (error.get("error_data") or {}).get("details") if isinstance(
+                error.get("error_data"), dict) else None
             yield {
                 "provider_id": str(report["id"]),
                 "status": str(report["status"]),
                 "error_code": str(code) if code is not None else None,
+                # Meta's own words, for the inbox: "Re-engagement message", …
+                "error_title": details or error.get("title") or error.get("message"),
             }
 
 

@@ -7,6 +7,8 @@ site too — before the client's WhatsApp number and templates are approved.
 
 `RecordingWhatsAppSender` is the tests' version: it keeps what it was handed,
 and can be told to fail.
+
+Both can also write free text, as the staff inbox does (send_text).
 """
 from __future__ import annotations
 
@@ -27,12 +29,18 @@ class PretendWhatsAppSender:
             provider_id=f"pretend-{secrets.token_hex(8)}",
         )
 
+    def send_text(self, to: str, text: str) -> WhatsAppResult:
+        return WhatsAppResult(ok=True, detail="Not sent: pretend mode",
+                              provider_id=f"pretend-{secrets.token_hex(8)}")
+
 
 class RecordingWhatsAppSender:
     transport = "twilio"
 
     def __init__(self) -> None:
         self.sent: list[WhatsAppMessage] = []
+        # Free text: (to, text).
+        self.texts: list[tuple[str, str]] = []
         # Set to a WhatsAppResult to make the next sends fail with it.
         self.failure: WhatsAppResult | None = None
 
@@ -41,3 +49,9 @@ class RecordingWhatsAppSender:
             return self.failure
         self.sent.append(message)
         return WhatsAppResult(ok=True, detail="accepted", provider_id=f"SM{len(self.sent):032d}")
+
+    def send_text(self, to: str, text: str) -> WhatsAppResult:
+        if self.failure is not None:
+            return self.failure
+        self.texts.append((to, text))
+        return WhatsAppResult(ok=True, detail="accepted", provider_id=f"TX{len(self.texts):032d}")

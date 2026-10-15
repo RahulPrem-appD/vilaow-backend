@@ -667,11 +667,30 @@ def test_a_callback_meta_did_not_sign_is_refused(client, db, professions, meta_o
     assert _intro(db).pro_confirmed_at is None
 
 
-def test_metas_address_does_not_exist_until_whatsapp_is_real_through_meta(client, whatsapp):
-    path = "/api/whatsapp/meta/webhook"
-    assert client.get(path, params={"hub.mode": "subscribe", "hub.verify_token": "x",
-                                    "hub.challenge": "1"}).status_code == 404
-    assert client.post(path, json={"entry": []}).status_code == 404
+def test_metas_address_does_not_exist_until_its_secrets_are_set(client):
+    from app.config import Settings
+    from app.main import app
+
+    def hook(**settings):
+        return get_meta_webhook(Settings(_env_file=None, **settings))
+
+    assert hook() is None
+    assert hook(meta_app_secret="s", meta_verify_token="too-short") is None
+    assert hook(meta_verify_token="v" * 24) is None
+    # Open in any mode once both are set: the inbox keeps every message from
+    # then on, before the follow-up itself runs through Meta.
+    for mode in ("off", "pretend", "meta"):
+        assert hook(whatsapp_mode=mode, meta_app_secret="s",
+                    meta_verify_token="v" * 24) == MetaWebhook("s", "v" * 24)
+
+    app.dependency_overrides[get_meta_webhook] = lambda: None
+    try:
+        path = "/api/whatsapp/meta/webhook"
+        assert client.get(path, params={"hub.mode": "subscribe", "hub.verify_token": "x",
+                                        "hub.challenge": "1"}).status_code == 404
+        assert client.post(path, json={"entry": []}).status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_meta_webhook, None)
 
 
 def test_meta_setup_needs_the_meta_settings(as_caller):

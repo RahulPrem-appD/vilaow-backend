@@ -33,7 +33,7 @@ from app.domain.errors import StorageFailure
 from app.ports.clock import Clock, SystemClock
 from app.ports.email import EmailSender
 from app.ports.storage import StorageBackend
-from app.ports.whatsapp import WhatsAppSender
+from app.ports.whatsapp import WhatsAppChatSender, WhatsAppSender
 
 if TYPE_CHECKING:  # imported lazily below to keep the graph acyclic
     import anthropic
@@ -45,6 +45,7 @@ if TYPE_CHECKING:  # imported lazily below to keep the graph acyclic
     from app.services.introductions import IntroductionService, VerifiedReviewService
     from app.services.professionals import ProfessionalService
     from app.services.professions import ProfessionService
+    from app.services.whatsapp_inbox import InboxService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbDep = Annotated[Session, Depends(get_db)]
@@ -322,6 +323,22 @@ def get_assistant(settings: SettingsDep, client: AssistantClientDep) -> "Assista
 
 AssistantDep = Annotated["Assistant", Depends(get_assistant)]
 
+
+def get_whatsapp_assistant(settings: SettingsDep) -> "Assistant | None":
+    """The same assistant, answering on WhatsApp. None unless switched on
+    (WHATSAPP_AI_REPLIES) and given its provider's key: unlike the website's,
+    a missing key turns the answers off rather than refusing a request."""
+    if not (settings.whatsapp_ai_replies and settings.assistant_key):
+        return None
+    from app.services.assistant import GLM_BASE_URL
+
+    client = (_anthropic(settings.glm_api_key, GLM_BASE_URL)
+              if settings.assistant_provider == "glm" else _anthropic(settings.anthropic_api_key))
+    return get_assistant(settings, client)
+
+
+WhatsAppAssistantDep = Annotated["Assistant | None", Depends(get_whatsapp_assistant)]
+
 StaffDep = Annotated[Staff, Depends(current_staff)]
 
 
@@ -334,10 +351,43 @@ class MetaWebhook:
 
 
 def get_meta_webhook(settings: SettingsDep) -> MetaWebhook | None:
-    if (settings.whatsapp_mode != "meta" or not settings.meta_app_secret
-            or len(settings.meta_verify_token) < 16):
+    """Open once Meta's app secret and verify token are set, whatever mode
+    the follow-up is in: the inbox keeps every message from then on, and the
+    follow-up reads replies only once it runs through Meta."""
+    if not settings.meta_app_secret or len(settings.meta_verify_token) < 16:
         return None
     return MetaWebhook(settings.meta_app_secret, settings.meta_verify_token)
 
 
 MetaWebhookDep = Annotated[MetaWebhook | None, Depends(get_meta_webhook)]
+
+
+# ── the WhatsApp inbox ─────────────────────────────────────────────────────
+
+def get_inbox_sender(settings: SettingsDep) -> WhatsAppChatSender | None:
+    """Vilaow's number, for staff and the assistant: Meta's, whatever mode the
+    follow-up is in, since answering somebody is not the follow-up. Pretend
+    while trying things out; None when nothing can be sent."""
+    if settings.meta_whatsapp_token and settings.meta_phone_number_id:
+        from app.adapters.whatsapp.meta import MetaWhatsAppSender
+
+        return MetaWhatsAppSender(token=settings.meta_whatsapp_token,
+                                  phone_number_id=settings.meta_phone_number_id,
+                                  version=settings.meta_graph_version)
+    if settings.whatsapp_mode == "pretend":
+        from app.adapters.whatsapp.pretend import PretendWhatsAppSender
+
+        return PretendWhatsAppSender()
+    return None
+
+
+InboxSenderDep = Annotated[WhatsAppChatSender | None, Depends(get_inbox_sender)]
+
+
+def get_inbox_service(db: DbDep, clock: ClockDep, sender: InboxSenderDep) -> "InboxService":
+    from app.services.whatsapp_inbox import InboxService
+
+    return InboxService(db, clock=clock, sender=sender)
+
+
+InboxServiceDep = Annotated["InboxService", Depends(get_inbox_service)]

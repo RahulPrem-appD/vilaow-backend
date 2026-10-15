@@ -7,8 +7,10 @@ Three audiences, so three routers:
     secret in X-Jobs-Key instead; without one, the run needs a signed-in person.
   * Twilio or Meta — tells us about replies and deliveries. These addresses
     are on the open internet, so nothing is read until the provider's
-    signature checks out, and they do not exist at all unless WhatsApp is
-    switched on for real through that provider.
+    signature checks out, and they do not exist at all until that provider's
+    secrets are set. Meta's also fills the staff inbox
+    (app/services/whatsapp_inbox.py): every message is kept, and once Meta
+    has its answer, staff are emailed and the assistant may reply.
 
 The rules live in app/services/follow_ups.py; this file reads requests and
 shapes responses.
@@ -18,22 +20,30 @@ from __future__ import annotations
 import hmac
 import json
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response, status
 from starlette.concurrency import run_in_threadpool
 
 from app.adapters.whatsapp import meta
 from app.adapters.whatsapp.twilio import signed_by_twilio
 from app.api.deps import (
+    ClockDep,
     DbDep,
+    EmailDep,
     FollowUpServiceDep,
+    InboxSenderDep,
+    InboxServiceDep,
     MetaWebhookDep,
     SettingsDep,
     StaffDep,
     TwilioWebhook,
     TwilioWebhookDep,
+    UrlsDep,
+    WhatsAppAssistantDep,
 )
+from app.db import SessionLocal
 from app.schemas import FollowUpSettingsOut
 from app.security import current_staff
+from app.services.whatsapp_inbox import after_message
 
 router = APIRouter(prefix="/api/follow-ups", tags=["follow-ups"])
 webhook_router = APIRouter(prefix="/api/whatsapp/twilio", tags=["whatsapp"])
@@ -157,9 +167,11 @@ def meta_verify(
 
 @meta_router.post("/webhook")
 async def meta_events(
-    request: Request, service: FollowUpServiceDep, hook: MetaWebhookDep,
+    request: Request, background: BackgroundTasks, service: FollowUpServiceDep,
+    inbox: InboxServiceDep, hook: MetaWebhookDep, clock: ClockDep, sender: InboxSenderDep,
+    email: EmailDep, urls: UrlsDep, assistant: WhatsAppAssistantDep,
 ) -> Response:
-    """Replies to Vilaow's number, and reports on messages it sent."""
+    """Messages to Vilaow's number, and reports on messages it sent."""
     if hook is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     body = await request.body()
@@ -169,8 +181,33 @@ async def meta_events(
         payload = json.loads(body)
     except ValueError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not JSON") from None
-    for reply in meta.replies(payload):
-        await run_in_threadpool(service.record_reply, transport="meta", **reply)
+    for message in meta.messages(payload):
+        kept = await run_in_threadpool(
+            inbox.receive, number=message["number"], kind=message["kind"], text=message["text"],
+            provider_id=message["provider_id"], profile_name=message["profile_name"],
+            at=message["at"])
+        # Only a follow-up that runs through Meta asks questions here. In any
+        # other mode a "yes" is just a message, not an answer to a question
+        # that never went.
+        answer = None
+        if service.mode == "meta":
+            answer = await run_in_threadpool(
+                service.record_reply, transport="meta",
+                **{key: message[key] for key in
+                   ("number", "text", "button", "replied_to", "provider_id")})
+        if kept is None:
+            continue   # kept before: Meta sent it again
+        if answer is not None:
+            handled = answer.answer in ("yes", "no")
+            await run_in_threadpool(inbox.link, kept.id, answer.introduction_id, handled=handled)
+            if handled:
+                continue   # the follow-up has acted on it; nobody needs to
+        background.add_task(
+            after_message, SessionLocal, kept.id, clock=clock, sender=sender, email=email,
+            inbox_link=urls.whatsapp_inbox, assistant=assistant, site_url=urls.site)
     for report in meta.deliveries(payload):
-        await run_in_threadpool(service.record_delivery, provider="Meta", **report)
+        await run_in_threadpool(
+            service.record_delivery, provider="Meta", provider_id=report["provider_id"],
+            status=report["status"], error_code=report["error_code"])
+        await run_in_threadpool(inbox.record_delivery, **report)
     return Response(status_code=status.HTTP_200_OK)

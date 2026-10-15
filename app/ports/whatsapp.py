@@ -1,10 +1,14 @@
 """Sending WhatsApp, as an interface — the same shape as email (app/ports/email.py).
 
 WhatsApp lets a business start a conversation only with a template Meta has
-approved in advance, so a message here is never free text: it is one of our
-templates, a language, and the values for its blanks. The wording lives in
-app/adapters/whatsapp/templates.py; how it travels is an adapter — Twilio for
-real, or the pretend sender that writes it down and sends nothing.
+approved in advance, so a message here is one of our templates, a language,
+and the values for its blanks. The wording lives in
+app/adapters/whatsapp/templates.py; how it travels is an adapter — Meta or
+Twilio for real, or the pretend sender that writes it down and sends nothing.
+
+Free text is allowed only to someone who wrote in the last 24 hours: that is
+`send_text`, which the staff inbox and the assistant use, and which only the
+caller can know is allowed (app/services/whatsapp_inbox.py checks it).
 """
 from __future__ import annotations
 
@@ -43,3 +47,9 @@ class WhatsAppSender(Protocol):
     transport: str
 
     def send(self, message: WhatsAppMessage) -> WhatsAppResult: ...
+
+
+class WhatsAppChatSender(WhatsAppSender, Protocol):
+    """A sender that can also write freely, inside the 24-hour window."""
+
+    def send_text(self, to: str, text: str) -> WhatsAppResult: ...

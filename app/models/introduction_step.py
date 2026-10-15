@@ -70,7 +70,8 @@ class IntroductionStep(Base):
     # The provider's id for the message, which is how a reply or a delivery
     # report finds its way back to the step. Unique, so a reply Twilio
     # delivers twice at the same moment is stored once, not acted on twice.
-    provider_id: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    # 128 characters: Meta's ids run to about 60, more for long numbers.
+    provider_id: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     # On a reply: "yes", "no", or "other" for a typed message.
     answer: Mapped[str | None] = mapped_column(String(8))
     # Why it failed, was skipped or was not needed — or a typed reply's words.

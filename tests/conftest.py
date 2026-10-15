@@ -109,15 +109,22 @@ def _never_send_real_whatsapp():
     ones today. The tests of the follow-up switch it on with a sender of their
     own (tests/test_follow_ups.py).
     """
-    from app.api.deps import get_follow_up_config, get_whatsapp_sender
+    from app.api.deps import (
+        get_follow_up_config, get_inbox_sender, get_whatsapp_assistant, get_whatsapp_sender,
+    )
     from app.main import app
     from app.services.follow_ups import FollowUpConfig
 
     app.dependency_overrides[get_whatsapp_sender] = lambda: None
     app.dependency_overrides[get_follow_up_config] = lambda: FollowUpConfig()
+    # The inbox's sender and the assistant on WhatsApp, likewise: the inbox
+    # tests bring their own (tests/test_whatsapp_inbox.py).
+    app.dependency_overrides[get_inbox_sender] = lambda: None
+    app.dependency_overrides[get_whatsapp_assistant] = lambda: None
     yield
-    app.dependency_overrides.pop(get_whatsapp_sender, None)
-    app.dependency_overrides.pop(get_follow_up_config, None)
+    for dependency in (get_whatsapp_sender, get_follow_up_config, get_inbox_sender,
+                       get_whatsapp_assistant):
+        app.dependency_overrides.pop(dependency, None)
 
 
 @pytest.fixture(autouse=True)
