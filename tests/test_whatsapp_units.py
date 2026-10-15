@@ -411,9 +411,18 @@ def test_setup_subscribes_submits_only_what_is_missing_and_reports():
     calls = []
 
     def call(method, url, body, token):
-        calls.append((method, url.removeprefix("https://graph.facebook.com/v25.0/"), body))
-        if url.endswith("/subscribed_apps"):
-            return 200, '{"success": true}'
+        path = url.removeprefix("https://graph.facebook.com/v25.0/")
+        calls.append((method, path, body))
+        if path.endswith("/subscribed_apps"):
+            if method == "POST":
+                return 200, '{"success": true}'
+            return 200, ('{"data": [{"whatsapp_business_api_data": {"id": "1774", "name": "Vilaow"}, '
+                         '"override_callback_uri": "https://elsewhere.test/hook"}]}')
+        if path == "app":
+            return 200, '{"id": "1774", "name": "Vilaow"}'
+        if path.startswith("555?"):
+            return 200, ('{"platform_type": "CLOUD_API", "account_mode": "LIVE", '
+                         '"webhook_configuration": {"application": "https://vilaow.test/hook"}}')
         if "/phone_numbers" in url:
             return 200, ('{"data": [{"id": "555", "display_phone_number": "+30 697 674 6506", '
                          '"verified_name": "Vilaow", "status": "CONNECTED"}]}')
@@ -438,6 +447,13 @@ def test_setup_subscribes_submits_only_what_is_missing_and_reports():
     assert len(submitted) == every - 1          # the approved one is left alone
     first = result["templates"][0]
     assert first == {"name": "vilaow_request_received", "language": "en", "status": "APPROVED"}
+    # Where Meta sends the messages, for when none arrive.
+    assert result["token_app"] == {"id": "1774", "name": "Vilaow"}
+    assert result["apps"] == [{"id": "1774", "name": "Vilaow", "override": "https://elsewhere.test/hook"}]
+    assert result["messaging_account_apps"] == result["apps"]
+    assert result["phone_numbers"][0]["webhooks"] == {
+        "platform_type": "CLOUD_API", "account_mode": "LIVE",
+        "webhook_configuration": {"application": "https://vilaow.test/hook"}}
 
 
 def test_meta_mode_names_each_setting_that_is_missing():

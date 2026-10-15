@@ -260,9 +260,21 @@ def template_request(template: Template, language: str) -> dict:
             "components": components}
 
 
+def _apps(status: int, data: dict) -> list[dict] | str | int:
+    """The apps subscribed to an account, each with the address that replaces
+    its own for this account's messages, if one does."""
+    if status != 200:
+        return _error(data)[1] or status
+    return [{"id": (item.get("whatsapp_business_api_data") or {}).get("id"),
+             "name": (item.get("whatsapp_business_api_data") or {}).get("name"),
+             "override": item.get("override_callback_uri")}
+            for item in data.get("data") or [] if isinstance(item, dict)]
+
+
 def setup(*, token: str, waba_id: str, messaging_id: str = "", version: str = "v25.0",
           call: Call = _call) -> dict:
-    """Subscribe the app, submit the missing templates, and say where each stands."""
+    """Subscribe the app, submit the missing templates, and say where each
+    stands, and where Meta sends the account's messages."""
     base = GRAPH.format(version=version) + waba_id
     templates_base = GRAPH.format(version=version) + (messaging_id or waba_id)
 
@@ -279,6 +291,23 @@ def setup(*, token: str, waba_id: str, messaging_id: str = "", version: str = "v
         {key: number.get(key) for key in ("id", "display_phone_number", "verified_name", "status")}
         for number in numbers.get("data") or []
     ] if status == 200 else _error(numbers)[1] or status
+
+    # Where Meta sends the messages, for when none arrive: the app the token
+    # belongs to (the one subscribed above), every app subscribed to the
+    # accounts, and each number's own settings.
+    graph = GRAPH.format(version=version)
+    status, app = get("", graph + "app")
+    result["token_app"] = ({key: app.get(key) for key in ("id", "name")} if status == 200
+                           else _error(app)[1] or status)
+    result["apps"] = _apps(*get("/subscribed_apps"))
+    if messaging_id:
+        result["messaging_account_apps"] = _apps(*get("/subscribed_apps", graph + messaging_id))
+    for number in result["phone_numbers"] if isinstance(result["phone_numbers"], list) else []:
+        status, data = get("?fields=platform_type,account_mode,webhook_configuration",
+                           graph + str(number["id"]))
+        number["webhooks"] = ({key: data.get(key) for key in
+                               ("platform_type", "account_mode", "webhook_configuration")}
+                              if status == 200 else _error(data)[1] or status)
 
     # Which account the templates went to, so a refusal can be read against it.
     result["templates_account"] = (f"Messaging account {messaging_id}" if messaging_id
