@@ -282,9 +282,18 @@ def setup(*, token: str, waba_id: str, messaging_id: str = "", version: str = "v
         status, body = call("GET", root + path, None, token)
         return status, _json(body)
 
-    status, body = call("POST", base + "/subscribed_apps", None, token)
-    subscribed = 200 <= status < 300 and _json(body).get("success") is True
-    result: dict = {"subscribed": subscribed if subscribed else _error(_json(body))[1] or status}
+    def subscribe(root: str) -> bool | str | int:
+        status, body = call("POST", root + "/subscribed_apps", None, token)
+        data = _json(body)
+        return True if 200 <= status < 300 and data.get("success") is True else (
+            _error(data)[1] or status)
+
+    result: dict = {"subscribed": subscribe(base)}
+    if messaging_id:
+        # Messages to the number never reached the app while it was subscribed
+        # to the WhatsApp account alone, and the Messaging account listed no
+        # apps at all: so it is subscribed there too.
+        result["subscribed_messaging_account"] = subscribe(templates_base)
 
     status, numbers = get("/phone_numbers?fields=id,display_phone_number,verified_name,status")
     result["phone_numbers"] = [

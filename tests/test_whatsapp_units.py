@@ -434,6 +434,7 @@ def test_setup_subscribes_submits_only_what_is_missing_and_reports():
     result = meta.setup(token="tok", waba_id="waba", messaging_id="msg", call=call)
 
     assert result["subscribed"] is True
+    assert result["subscribed_messaging_account"] is True
     assert result["templates_account"] == "Messaging account msg"
     assert result["phone_numbers"][0]["id"] == "555"
     every = sum(len(t.texts) for t in templates.TEMPLATES.values())
@@ -441,6 +442,7 @@ def test_setup_subscribes_submits_only_what_is_missing_and_reports():
     # The app and the numbers are the WhatsApp account's; the templates are
     # the Messaging account's.
     assert ("POST", "waba/subscribed_apps", None) in calls
+    assert ("POST", "msg/subscribed_apps", None) in calls
     assert any(c[1].startswith("waba/phone_numbers") for c in calls)
     assert any(c[0] == "GET" and c[1].startswith("msg/message_templates") for c in calls)
     submitted = [c for c in calls if c[0] == "POST" and c[1] == "msg/message_templates"]

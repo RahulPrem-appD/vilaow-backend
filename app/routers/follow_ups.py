@@ -80,8 +80,8 @@ def run_due_steps(
 
 @router.post("/meta-setup")
 def meta_setup(request: Request, db: DbDep, settings: SettingsDep) -> dict:
-    """Connect Meta's side once: subscribe the app to the WhatsApp account,
-    submit the templates Meta does not have yet, and report each one's status
+    """Connect Meta's side once: subscribe the app to the WhatsApp account and
+    the Messaging account, submit the templates Meta does not have yet, and report each one's status
     and the account's phone numbers. Safe to run again: it only adds what is
     missing. Needs only the token and the account id, so it runs while the
     follow-up is still off — the templates are approved before anything sends.
