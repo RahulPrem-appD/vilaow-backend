@@ -6,9 +6,9 @@ Generated from the website’s own pages by app/src/lib/assistant-knowledge.ts. 
 
 Buying a home abroad should feel exciting. We introduce you to Greek property professionals we've vetted ourselves, so every step is in good hands.
 
-Vilaow started with a simple truth: buying in Greece as a foreigner means trusting people you’ve never met, with no easy way to know who’s right for you. After years working in the Greek property market, we saw the same story again and again: a buyer falls in love with a home, then trusts whoever happens to be in the room. Sometimes it works out. Sometimes the lawyer turns out to work for the seller, or the building doesn’t match its permit. We knew it could be better. That’s Vilaow. Every professional here has passed our 5-step check, and only the ones we’d use ourselves make it through. We’re not an agency chasing a commission. Buyers use Vilaow for free, and no one can pay to rank higher. Our job is simple: make sure the people you meet here have earned your trust before you say hello.
+Buying property in another country means making important decisions in an unfamiliar market. Finding the right lawyer, architect or engineer shouldn’t be left to chance. We saw how difficult it can be for international buyers to assess property professionals in Greece. Online reviews and personal recommendations can help, but they don’t always tell the whole story. We believed there should be a better starting point: a place where professionals are reviewed before buyers make contact. That’s why we created Vilaow.
 
-We're Vilaow — a company built on decades of combined experience buying, building and navigating property in Greece. We vet every professional ourselves, using the 5 steps above, so the people you meet here are people we'd trust with our own purchase.
+Vilaow isn’t an open directory. Every professional goes through our screening process before their profile is approved. Qualifications & Licences: We verify relevant professional qualifications and licences where applicable. Reviews & Reputation: We examine client feedback, ratings and reputation across available platforms. Individual Assessment: We assess each professional against our listing criteria before approving their profile. Only professionals who meet our requirements are listed on Vilaow.
 
 Motto: “We recommend. You choose.”
 
@@ -22,25 +22,22 @@ Free for buyers · No account needed.
 
 ### Why Buyers Can Trust It
 
-- **Personally Vetted**: Every professional passes our 5-step check before they appear.
+- **Personally Vetted**: Every professional passes our 4-step check before they appear.
 - **Reviews from Buyers We Introduced**: Buyers we put in touch, and who told us the work went ahead, can leave a review marked verified. Ratings carried over from elsewhere always say where they came from.
 - **Only on Your Side**: No one can pay to rank higher. Who you see is who fits you.
 - **Built for Foreign Buyers**: Professionals who know what overseas buyers ask. Filter by language to find one who speaks yours.
-- **Trust Is Earned, Not Claimed**: Anyone can call themselves trustworthy. We check, before a single profile goes live.
-- **Always on the Buyer’s Side**: The professionals you see are the ones who fit you, not the ones who paid the most.
-- **Honesty Over the Sale**: We’d rather tell you about a problem than help close a bad deal. Happy buyers come back, and tell their friends.
+- **Free to use**: Browse listed professionals without a subscription or access fee.
+- **No paid rankings**: Professionals cannot pay to secure a higher position in our listings.
+- **Informed decisions**: Our screening gives you a better starting point, while leaving you in control of whom you choose to work with.
 
-### How a Professional Gets Approved
+### How Every Vilaow Professional Is Vetted
 
-Every professional on Vilaow has passed all 5 steps.
+Every professional is individually reviewed and approved before being listed on Vilaow.
 
-1. **Handpicked, Not Self-Submitted**: We find professionals ourselves. Nobody can sign themselves up.
-2. **Screened for Fit**: We speak with each one and keep only those who meet our standard.
-3. **Licence Checked**: We verify they hold a valid professional licence.
-4. **Reputation Checked**: We read their ratings and reviews across platforms.
-5. **Final Fit Confirmed**: Only once we're confident they're the right match do they go live on Vilaow.
-
-If they don't pass every step, they don't appear. It's that simple.
+1. **Individually Selected**: We identify and approach professionals directly. No self-submissions, open registrations or automatic listings.
+2. **Qualifications & Licences Verified**: We verify relevant professional credentials and check that required licences are valid.
+3. **Independent Reviews & Reputation Checked**: We examine ratings, client reviews and feedback across multiple platforms to assess each professional's public track record.
+4. **Screening Completed Before Approval**: We assess the findings against Vilaow's standards before approving a professional for listing. Only those who meet our criteria are published.
 
 ### Where Vilaow Works
 
@@ -48,7 +45,7 @@ All six regions are open: Athens & Athens Riviera; Crete (Chania, Rethymno, Hera
 
 ### A Free Call with the Vilaow Team (/book-a-call)
 
-Talk to Someone Who’s Done This Before. Tell us roughly what you’re planning and we’ll call you back: where to look, what it costs, and which professionals you’ll need. The button says “Book my free 15-minute call”. Free, no obligation, and nothing is charged on this website.
+Planning to Buy Property in Greece? Let’s Talk. Tell us a little about your plans, and we’ll arrange a free 15-minute call to help you understand your next steps — from choosing the right area and estimating costs to identifying the professionals you’ll need. The button says “Book My Free Call”. Free, no obligation and no payment required. Just a practical conversation to help you get started.
 
 ### Contact
 
