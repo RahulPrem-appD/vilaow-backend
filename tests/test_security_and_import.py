@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import os
 import pathlib
+from datetime import datetime, timezone
 
 import pytest
 from openpyxl import Workbook
@@ -264,3 +265,23 @@ def test_parses_his_whole_google_maps_list():
     r = parse_workbook(GOOGLE_MAPS_LIST)
     assert (r.seen, r.accepted, r.skipped_no_phone, r.skipped_unknown_category) == (1956, 1948, 8, 0)
     assert [x for x in r.rows if not x.region or not x.city or not x.maps_url] == []
+
+
+def test_a_batch_pages_through_in_order_without_repeats(as_owner, professions, db):
+    """An import adds every row in one transaction, so all its rows share one
+    created_at: 1,922 of them on 2 November. Sorted on that alone, the
+    worklist's pages could repeat some rows and miss others."""
+    same = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+    db.add_all(
+        Professional(business_name=f"Row {i:02d}", phone=f"6900000{i:03d}",
+                     profession_id=professions["lawyer"], created_at=same)
+        for i in range(30)
+    )
+    db.commit()
+
+    names = []
+    for offset in range(0, 30, 7):
+        r = as_owner.get(f"/api/professionals?limit=7&offset={offset}")
+        assert r.status_code == 200, r.text
+        names += [p["business_name"] for p in r.json()["items"]]
+    assert names == [f"Row {i:02d}" for i in range(30)]

@@ -88,8 +88,12 @@ class ProfessionalService:
             return self._needs_attention(stmt, limit=limit, offset=offset)
 
         total = self._db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        # The id breaks ties: an import adds every row in one transaction, so
+        # they share one created_at, and without it the pages of a batch could
+        # repeat some rows and miss others. Within a batch: the sheet's order.
         items = self._db.scalars(
-            stmt.order_by(Professional.created_at.desc()).limit(limit).offset(offset)
+            stmt.order_by(Professional.created_at.desc(), Professional.id)
+            .limit(limit).offset(offset)
         ).all()
         return total, list(items)
 
