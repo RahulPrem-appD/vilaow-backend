@@ -4,13 +4,16 @@ These do not need the API, so they run even while the routers are in flux.
 """
 from __future__ import annotations
 
+import io
 import os
 import pathlib
 
 import pytest
+from openpyxl import Workbook
+from sqlalchemy import select
 
 from app.importer import CATEGORY_TO_KEY, normalise_phone, parse_workbook
-from app.models import Role, Staff
+from app.models import Professional, Role, Staff
 from app.security import authenticate, hash_password, verify_password
 
 def _find_contact_sheet() -> pathlib.Path | None:
@@ -164,3 +167,100 @@ def test_every_category_maps_to_a_known_profession():
     r = parse_workbook(REAL_SHEET)
     assert r.skipped_unknown_category == 0
     assert {x.profession_key for x in r.rows} <= set(CATEGORY_TO_KEY.values())
+
+
+# ── his Google Maps list (1 November 2026) ──────────────────────────────────
+MAP = "https://www.google.com/maps/place/?q=place_id:{}"
+
+
+def _google_maps_list() -> io.BytesIO:
+    """His Google Maps list in miniature: a Summary sheet of counts first, then
+    the table, then the same rows again in a sheet per destination."""
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Summary"
+    summary.append(["Vilaow – Professionals by Destination & Sector (Google Maps)"])
+    summary.append(["Destination", "Lawyer", "Engineer", "Total"])
+    summary.append(["Athens & Athens Riviera", 1, 1, 2])
+
+    header = ["Destination", "Area", "Sector", "Name", "Phone", "Address",
+              "Rating", "Reviews", "Google Maps", "Note"]
+    rows = [
+        ["Athens & Athens Riviera", "Athens", "Lawyer", "Law Office A",
+         "+30 210 000 0001", "Street 1", 4.8, 120, "place-a", None],
+        ["Thessaloniki & Halkidiki", "Halkidiki", "Engineer", "Engineer B",
+         "+30 2310 000002", "Street 2", None, None, "place-b", "Mixed reviews - check"],
+        ["Agios Nikolaos", "Agios Nikolaos", "Property Manager", "Manager C",
+         "6900000003", "Street 3", 5, 9, "place-c", None],
+        ["Corfu", "Corfu", "Tax Advisor", "Advisor D",
+         None, "Street 4", 4.1, 30, "place-d", None],
+        ["Paros", "Paros", "Notary", "Notary E",
+         "6900000005", "Street 5", 4.5, 12, "place-e", None],
+    ]
+    for title, sheet_rows in (("All Professionals", rows), ("Athens & Riviera", rows[:1])):
+        ws = wb.create_sheet(title)
+        ws.append(header)
+        for row in sheet_rows:
+            ws.append([*row[:8], "Open map", row[9]])
+            ws.cell(row=ws.max_row, column=9).hyperlink = MAP.format(row[8])
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out
+
+
+def test_reads_the_table_not_the_summary_in_front_of_it():
+    """Reading the first sheet read his 15 rows of counts, and skipped them
+    all. The rows repeated in the per-destination sheets are not read twice."""
+    r = parse_workbook(_google_maps_list())
+    assert (r.seen, r.accepted, r.skipped_no_phone, r.skipped_unknown_category) == (5, 3, 1, 1)
+    assert [(x.profession_key, x.region, x.city) for x in r.rows] == [
+        ("lawyer", "Athens", "Athens"),
+        ("engineer", "Thessaloniki", "Halkidiki"),
+        ("property_manager", "Crete", "Agios Nikolaos"),
+    ]
+    first = r.rows[0]
+    assert (first.business_name, first.phone, first.address) == ("Law Office A", "+30 210 000 0001", "Street 1")
+    assert (first.rating, first.review_count) == (4.8, 120)
+    assert first.maps_url == MAP.format("place-a")
+    assert r.rows[1].notes == "Mixed reviews - check"
+
+
+def test_the_import_keeps_the_map_link(as_owner, professions, db):
+    r = as_owner.post(
+        "/api/imports",
+        files={"file": ("google-maps.xlsx", _google_maps_list(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["batch"]["rows_added"] == 3
+    pro = db.scalar(select(Professional).where(Professional.business_name == "Engineer B"))
+    assert (pro.region, pro.city) == ("Thessaloniki", "Halkidiki")
+    assert pro.notes == f"Mixed reviews - check | Google Maps: {MAP.format('place-b')}"
+
+
+def _find_google_maps_list() -> pathlib.Path | None:
+    """His full list, where it tends to be. Not committed, for the same reason
+    as his first sheet; VILAOW_GOOGLE_MAPS_LIST overrides."""
+    override = os.environ.get("VILAOW_GOOGLE_MAPS_LIST")
+    candidates = [pathlib.Path(override)] if override else []
+    candidates += [
+        pathlib.Path.home() / "Downloads" / name
+        for name in ("vilaow-professionals-google-maps-EN_1.xlsx",
+                     "vilaow-professionals-google-maps-EN.xlsx")
+    ]
+    return next((c for c in candidates if c.exists()), None)
+
+
+GOOGLE_MAPS_LIST = _find_google_maps_list()
+
+
+@pytest.mark.skipif(
+    GOOGLE_MAPS_LIST is None,
+    reason="his Google Maps list is not on this machine — set VILAOW_GOOGLE_MAPS_LIST to run this",
+)
+def test_parses_his_whole_google_maps_list():
+    r = parse_workbook(GOOGLE_MAPS_LIST)
+    assert (r.seen, r.accepted, r.skipped_no_phone, r.skipped_unknown_category) == (1956, 1948, 8, 0)
+    assert [x for x in r.rows if not x.region or not x.city or not x.maps_url] == []

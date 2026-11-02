@@ -80,7 +80,10 @@ async def create_import(
             continue
         seen_in_batch.add(phone_key)
 
-        notes = " | ".join(part for part in (row.status, row.notes) if part) or None
+        # The map link goes in the notes until a profile has a field for it:
+        # its place ID is what Google reviews will need.
+        maps = f"Google Maps: {row.maps_url}" if row.maps_url else None
+        notes = " | ".join(part for part in (row.status, row.notes, maps) if part) or None
 
         professional = Professional(
             business_name=row.business_name,
