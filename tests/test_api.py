@@ -15,6 +15,7 @@ from app.models import Professional, Stage
 
 ADMIN_GETS = [
     "/api/professionals",
+    "/api/professionals/places",
     "/api/imports",
     "/api/leads",
     "/api/professions",

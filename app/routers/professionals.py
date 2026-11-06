@@ -17,6 +17,7 @@ from app.schemas import (
     CallRequest,
     EventOut,
     GoogleReviewCreate,
+    PlaceCount,
     ProfessionalDetail,
     ProfessionalListResponse,
     ProfessionalOut,
@@ -64,6 +65,15 @@ def list_professionals(
     return ProfessionalListResponse(
         total=total, items=[ProfessionalOut.model_validate(p) for p in items]
     )
+
+
+# Before "/{professional_id}", which would otherwise claim "places" as an id.
+@router.get("/places", response_model=list[PlaceCount])
+def list_places(service: ProfessionalServiceDep, _staff: StaffDep) -> list[PlaceCount]:
+    return [
+        PlaceCount(region=region, city=city, count=count)
+        for region, city, count in service.places()
+    ]
 
 
 @router.get("/{professional_id}", response_model=ProfessionalDetail)

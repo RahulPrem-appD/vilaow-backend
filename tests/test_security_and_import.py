@@ -285,3 +285,26 @@ def test_a_batch_pages_through_in_order_without_repeats(as_owner, professions, d
         assert r.status_code == 200, r.text
         names += [p["business_name"] for p in r.json()["items"]]
     assert names == [f"Row {i:02d}" for i in range(30)]
+
+
+def test_the_worklist_filters_offer_every_place_on_file(as_caller, professions, db):
+    """After his import the Region filter offered Athens alone: its options
+    came from the newest 200 records, and those were all from Athens."""
+    places = [("Athens", "Athens")] * 3 + [
+        ("Crete", "Chania"), ("Crete", "Heraklion"), ("Crete", "Chania"), (None, None),
+    ]
+    db.add_all(
+        Professional(business_name=f"Pro {i}", phone=f"6911111{i:03d}",
+                     profession_id=professions["lawyer"], region=region, city=city)
+        for i, (region, city) in enumerate(places)
+    )
+    db.commit()
+
+    r = as_caller.get("/api/professionals/places")
+    assert r.status_code == 200, r.text
+    assert r.json() == [
+        {"region": "Athens", "city": "Athens", "count": 3},
+        {"region": "Crete", "city": "Chania", "count": 2},
+        {"region": "Crete", "city": "Heraklion", "count": 1},
+        {"region": None, "city": None, "count": 1},
+    ]

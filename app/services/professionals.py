@@ -97,6 +97,20 @@ class ProfessionalService:
         ).all()
         return total, list(items)
 
+    def places(self) -> list[tuple[str | None, str | None, int]]:
+        """Every region and city pair on file, with how many records have it.
+
+        The worklist's Region and Area filters match exactly, so they offer
+        what the records hold. A sample of records missed most of it: an
+        import adds hundreds of rows from one place first.
+        """
+        rows = self._db.execute(
+            select(Professional.region, Professional.city, func.count())
+            .group_by(Professional.region, Professional.city)
+            .order_by(Professional.region, Professional.city)
+        ).all()
+        return [(region, city, count) for region, city, count in rows]
+
     def _needs_attention(self, stmt, *, limit: int, offset: int):
         """Published profiles missing a required answer.
 

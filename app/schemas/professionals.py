@@ -104,6 +104,12 @@ class ProfessionalListResponse(ORMModel):
     total: int
     items: list[ProfessionalOut]
 
+class PlaceCount(ORMModel):
+    """One region and city pair on file, for the worklist's filters."""
+    region: str | None
+    city: str | None
+    count: int
+
 class ProfessionalUpdate(ORMModel):
     """Editable profile fields. Stage, assignment, publish state and the call
     stamp all have dedicated endpoints and are deliberately absent here.
