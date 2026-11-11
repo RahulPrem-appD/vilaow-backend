@@ -2,14 +2,24 @@
 
 Four things must hold, and the owner still clicks the button himself:
 
-  1. the listing agreement is signed **and** the email confirmed
-  2. a photo is attached
+  1. the listing agreement is signed **and** the email confirmed, by the
+     person whose name the profile shows, and the record is at Signed
+  2. a photo is attached, and switched on
   3. every required field on that profession has an answer
   4. a human looked at it
 
 Clause 5 of the agreement is why the first is not negotiable: it is the
 permission to display a person's name and photo at all. Publishing without it
 means publishing someone's likeness with no consent on record.
+
+"By the person whose name it shows" and "at Signed" were added on 12 November.
+A test signing on 30 August left a completed agreement on a real agency's
+record; a caller later typed the real agent's name over it, and with a photo
+added that old signature would have published him. A signature is consent for
+the name it was given under, nobody else's.
+
+Holding these at the click is half the rule. The other half — a live profile
+going offline when what was approved changes — is app/services/live_guard.py.
 
 This module is pure. It takes facts and returns a verdict — no session, no
 queries, no imports from the web layer. That is what lets the rule be unit
@@ -21,10 +31,23 @@ Fetching those facts is a repository's job (app/repositories/publishing.py).
 """
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field as dc_field
 from typing import Any, Iterable
 
 from app.domain.fields import missing_required
+
+
+def name_key(name: str | None) -> str:
+    """A name as compared, not as shown: capitals, accents and spacing aside.
+
+    "Kostas  Veslas" and "kostas veslas" are one person, and so are "Νικόλαος"
+    and "ΝΙΚΟΛΑΟΣ". A different spelling is not, on purpose — the agreement
+    is consent for the name it was signed under.
+    """
+    text = unicodedata.normalize("NFKD", name or "")
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return " ".join(text.casefold().split())
 
 
 @dataclass(frozen=True)
@@ -41,6 +64,14 @@ class PublishFacts:
     has_photo: bool
     required_fields: tuple = ()
     answers: dict[str, Any] = dc_field(default_factory=dict)
+    # The record's stage, as its enum value.
+    stage: str = "signed"
+    # "photo" is in what this record shows, so buyers would see it.
+    photo_visible: bool = True
+    # The name the profile shows is one a completed agreement was signed under.
+    name_signed: bool = True
+    # The most recent completed agreement's signed name, for the message.
+    signed_as: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,9 +104,19 @@ def evaluate(facts: PublishFacts) -> Readiness:
         # Distinguished on purpose: these are different jobs for a caller. One
         # is a phone call, the other is asking someone to check their inbox.
         blockers.append("Signed, but the email address has not been confirmed yet")
+    elif not facts.name_signed:
+        blockers.append(
+            "The name on the profile is not the name the agreement was signed "
+            f"under ({facts.signed_as or 'no name'}) — send them a new agreement"
+        )
+
+    if facts.stage != "signed":
+        blockers.append(f"They are at {facts.stage.replace('_', ' ')}, not Signed")
 
     if not facts.has_photo:
         blockers.append("No photo — his signing form calls it the photo buyers will see")
+    elif not facts.photo_visible:
+        blockers.append("The photo is switched off, so buyers would not see it")
 
     for missing in missing_required(facts.required_fields, facts.answers):
         missing_keys.append(missing.key)

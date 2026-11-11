@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.domain.errors import Conflict, Invalid, NotFound
 from app.domain.visibility import validate
-from app.models import FieldType, Profession, ProfessionField
+from app.models import FieldType, Profession, ProfessionField, Professional, Staff
+from app.services.live_guard import enforce, snapshot
 
 # Only these two are answered by picking from a list, so only these two need
 # one. A select with no options is a field nobody can ever fill in.
@@ -49,15 +50,29 @@ class ProfessionService:
         self._db.refresh(profession)
         return profession
 
-    def update(self, profession_id: int, data: dict) -> Profession:
+    def update(self, profession_id: int, data: dict, *,
+               staff: Staff | None = None) -> Profession:
         profession = self.get(profession_id)
         if "key" in data and data["key"] != profession.key:
             if self._db.scalar(select(Profession).where(Profession.key == data["key"])):
                 raise Conflict("A profession with this key already exists")
         if data.get("visible_fields") is not None:
             data["visible_fields"] = validate(data["visible_fields"])
+        # The trade's list is what its live profiles show unless they have
+        # their own, so switching "photo" off here hides live photos too —
+        # and those profiles go offline the same as if it were done one by one.
+        watched = []
+        if "visible_fields" in data:
+            watched = [(p, snapshot(self._db, p)) for p in self._db.scalars(
+                select(Professional).where(Professional.profession_id == profession.id,
+                                           Professional.published.is_(True))
+            ).all()]
         for name, value in data.items():
             setattr(profession, name, value)
+        for professional, before in watched:
+            enforce(self._db, professional, before,
+                    actor_id=staff.id if staff else None,
+                    actor_label=staff.name if staff else None)
         self._db.commit()
         self._db.refresh(profession)
         return profession

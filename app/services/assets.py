@@ -26,6 +26,7 @@ from app.domain.errors import Invalid, NotFound, StorageFailure
 from app.models import Asset, AssetKind, Event, FieldType, Professional, ProfessionField, Role, Staff
 from app.ports.clock import Clock
 from app.ports.storage import StorageBackend
+from app.services.live_guard import enforce, snapshot
 
 # Generous for a photo, mean enough that nobody uploads a video by accident.
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
@@ -167,11 +168,16 @@ class AssetService:
         hundred kilobytes into every list response that selects the column.
         """
         professional = self._professional(professional_id)
+        before = snapshot(self._db, professional)
         asset = self._store(professional, upload, AssetKind.photo, None, staff,
                             actor_label=actor_label)
         # The column the public serialiser reads points at the endpoint, so
         # replacing a photo is one write and old files stay addressable.
         professional.photo = f"/api/assets/{asset.id}"
+        # The upload is the change on a live profile, not the save after it.
+        enforce(self._db, professional, before,
+                actor_id=staff.id if staff else None,
+                actor_label=actor_label or (staff.name if staff else None))
         self._db.commit()
         return asset
 
@@ -243,8 +249,11 @@ class AssetService:
 
         professional = self._db.get(Professional, asset.professional_id)
         if professional is not None:
+            before = snapshot(self._db, professional)
             if asset.kind is AssetKind.photo and professional.photo == f"/api/assets/{asset.id}":
                 professional.photo = None
+                enforce(self._db, professional, before,
+                        actor_id=staff.id, actor_label=staff.name)
             if asset.field_key and (professional.custom or {}).get(asset.field_key) == asset.id:
                 professional.custom = {
                     k: v for k, v in (professional.custom or {}).items() if k != asset.field_key

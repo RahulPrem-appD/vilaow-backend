@@ -24,6 +24,7 @@ from app.domain.visibility import validate
 from app.models import Event, Profession, Professional, Review, ReviewKind, Stage, Staff
 from app.ports.clock import Clock
 from app.repositories.publishing import profession_fields, readiness
+from app.services.live_guard import enforce, snapshot
 from app.services.photos import photo_reference
 
 
@@ -138,8 +139,11 @@ class ProfessionalService:
         return len(flagged), flagged[offset: offset + limit]
 
     # ── editing ─────────────────────────────────────────────────────────────
-    def update(self, professional_id: int, data: dict) -> Professional:
+    def update(self, professional_id: int, data: dict, *,
+               staff: Staff | None = None) -> Professional:
         professional = self.get(professional_id)
+        before = snapshot(self._db, professional)
+        had_photo = bool(professional.photo)
 
         moving_profession = (
             data.get("profession_id") is not None
@@ -241,6 +245,18 @@ class ProfessionalService:
         for field, value in data.items():
             setattr(professional, field, value)
 
+        # The two edits nobody could trace on 11 November. Recorded whether or
+        # not the profile is live: "who renamed this" is a question either way.
+        after = snapshot(self._db, professional)
+        if after.name != before.name:
+            self._record(professional.id, staff, "renamed",
+                         detail=f"{before.name or 'nothing'} → {after.name or 'nothing'}")
+        if had_photo and not professional.photo:
+            self._record(professional.id, staff, "photo_removed")
+        enforce(self._db, professional, before,
+                actor_id=staff.id if staff else None,
+                actor_label=staff.name if staff else None)
+
         self._db.commit()
         self._db.refresh(professional)
         return professional
@@ -304,10 +320,12 @@ class ProfessionalService:
     def change_stage(self, professional_id: int, stage: Stage, note: str | None,
                      *, staff: Staff) -> Professional:
         professional = self.get(professional_id)
+        before = snapshot(self._db, professional)
         previous = professional.stage
         professional.stage = stage
         self._record(professional.id, staff, "stage_change",
                      detail=note or f"{previous.value} -> {stage.value}")
+        enforce(self._db, professional, before, actor_id=staff.id, actor_label=staff.name)
         self._db.commit()
         self._db.refresh(professional)
         return professional
@@ -329,7 +347,8 @@ class ProfessionalService:
         than repeating the custom-field validation. The stage moves only to
         one the caller picked."""
         professional = self.update(professional_id, {k: v for k, v in data.items()
-                                                     if k != "stage"})
+                                                     if k != "stage"}, staff=staff)
+        before = snapshot(self._db, professional)
         professional.called_by_id = staff.id
         professional.called_at = self._clock.now()
         # No stage, no move. A call used to move a new or Contacted name to
@@ -339,6 +358,7 @@ class ProfessionalService:
         if stage is not None:
             professional.stage = stage
         self._record(professional.id, staff, "called", detail=notes)
+        enforce(self._db, professional, before, actor_id=staff.id, actor_label=staff.name)
         self._db.commit()
         self._db.refresh(professional)
         return professional
@@ -394,12 +414,12 @@ class ProfessionalService:
             candidate, n = f"{root}-{n}", n + 1
         return candidate
 
-    def _record(self, professional_id: int, staff: Staff, kind: str,
+    def _record(self, professional_id: int, staff: Staff | None, kind: str,
                 detail: str | None = None) -> None:
         self._db.add(Event(
             professional_id=professional_id,
-            actor_id=staff.id,
-            actor_label=staff.name,
+            actor_id=staff.id if staff else None,
+            actor_label=staff.name if staff else None,
             kind=kind,
             detail=detail,
         ))

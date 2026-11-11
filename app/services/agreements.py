@@ -36,6 +36,7 @@ from app.domain.errors import Conflict, Gone, Invalid, NotFound, Rejected, TooMa
 from app.models import Agreement, Asset, Event, Professional, Stage, Staff
 from app.ports.clock import Clock
 from app.ports.email import EmailSender
+from app.services.live_guard import enforce, snapshot
 from app.services.photos import photo_reference
 from app.security import hash_password, verify_password
 
@@ -125,8 +126,12 @@ class AgreementService:
             expires_at=self._clock.now() + timedelta(days=self._ttl_days),
         )
         self._db.add(agreement)
+        before = snapshot(self._db, professional)
         professional.stage = Stage.signature_sent
         self._record(professional.id, staff, "agreement_issued")
+        # A new agreement on a live profile means the old consent is in
+        # question, so it waits offline for the new signature.
+        enforce(self._db, professional, before, actor_id=staff.id, actor_label=staff.name)
         self._db.commit()
         self._db.refresh(agreement)
 
@@ -180,6 +185,7 @@ class AgreementService:
             raise Invalid("The agreement box has to be ticked")
 
         professional = self._professional(agreement)
+        before = snapshot(self._db, professional)
         now = self._clock.now()
 
         # The professional's own version wins. A caller pre-filled these from a
@@ -219,6 +225,10 @@ class AgreementService:
 
         self._record(professional.id, None, "agreement_signed",
                      actor_label=signed_name or "professional (public sign)")
+        # Issuing already took a live profile offline. This catches a link
+        # issued before that rule, still open on a live profile.
+        enforce(self._db, professional, before, actor_id=None,
+                actor_label=signed_name or "professional (public sign)")
         self._db.commit()
 
         sent = self._issue_code(agreement, professional)

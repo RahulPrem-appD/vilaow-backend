@@ -15,8 +15,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.publishing import PublishFacts, Readiness, evaluate, needs_attention
-from app.models import Agreement, Professional, ProfessionField
+from app.domain.publishing import PublishFacts, Readiness, evaluate, name_key, needs_attention
+from app.domain.visibility import resolve
+from app.models import Agreement, Profession, Professional, ProfessionField
 
 
 def profession_fields(db: Session, profession_id: int | None) -> list[ProfessionField]:
@@ -56,6 +57,23 @@ def facts_for(db: Session, professional: Professional) -> PublishFacts:
     # `signed_agreement()` above already asks the right question; the gate
     # simply was not using it.
     completed = signed_agreement(db, professional.id)
+    # Every completed agreement's signed name, newest first. Any of them
+    # covers the name shown — the same reasoning as above: a later agreement
+    # abandoned halfway must not cancel a good one.
+    signed_names = [name for name in db.scalars(
+        select(Agreement.signed_name)
+        .where(Agreement.professional_id == professional.id,
+               Agreement.signed_at.is_not(None),
+               Agreement.email_verified_at.is_not(None))
+        .order_by(Agreement.signed_at.desc(), Agreement.id.desc())
+    ).all() if name]
+    shown_name = name_key(professional.contact_name or professional.business_name)
+    # By id rather than the relationship, which still points at the old
+    # profession until a flush when profession_id has just been changed.
+    profession = (db.get(Profession, professional.profession_id)
+                  if professional.profession_id is not None else None)
+    visible = resolve(professional.visible_fields,
+                      profession.visible_fields if profession else None)
     return PublishFacts(
         has_profession=professional.profession_id is not None,
         agreement_signed=any_signed is not None,
@@ -63,6 +81,10 @@ def facts_for(db: Session, professional: Professional) -> PublishFacts:
         has_photo=bool(professional.photo),
         required_fields=tuple(profession_fields(db, professional.profession_id)),
         answers=professional.custom or {},
+        stage=professional.stage.value,
+        photo_visible="photo" in visible,
+        name_signed=any(name_key(name) == shown_name for name in signed_names),
+        signed_as=signed_names[0] if signed_names else None,
     )
 
 

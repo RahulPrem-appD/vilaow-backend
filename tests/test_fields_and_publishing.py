@@ -43,13 +43,14 @@ def _field(db, profession_id, key, **kw):
     return f
 
 
-def _complete_agreement(db, professional_id):
-    """Signed *and* confirmed — what the gate actually requires."""
+def _complete_agreement(db, professional_id, signed_name="Kostas Papadopoulos"):
+    """Signed *and* confirmed — what the gate actually requires. Under the
+    contact name `_pro` gives, as signing would have written it."""
     now = datetime.now(timezone.utc)
     a = Agreement(
         professional_id=professional_id, token=f"tok-{professional_id}",
         terms_version="2026-01", terms_text="1. ...", signed_at=now,
-        email_verified_at=now, signed_name="Kostas P",
+        email_verified_at=now, signed_name=signed_name,
         signature_image="data:image/png;base64,x",
     )
     db.add(a)
@@ -192,7 +193,7 @@ def test_publishing_needs_every_required_field(as_owner, db, professions):
 def test_all_four_gates_satisfied_publishes(as_owner, db, professions):
     _field(db, professions["lawyer"], "bar_number", label="Bar number", required=True)
     p = _pro(db, professions, photo="https://example.com/p.jpg",
-             custom={"bar_number": "BAR-4471"})
+             custom={"bar_number": "BAR-4471"}, stage=Stage.signed)
     _complete_agreement(db, p.id)
 
     r = as_owner.post(f"/api/professionals/{p.id}/publish")

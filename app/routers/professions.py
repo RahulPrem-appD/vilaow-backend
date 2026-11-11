@@ -43,10 +43,10 @@ def update_profession(
     profession_id: int,
     payload: ProfessionUpdate,
     service: ProfessionServiceDep,
-    _staff: Staff = Depends(require_owner),
+    staff: Staff = Depends(require_owner),
 ) -> ProfessionOut:
     return ProfessionOut.model_validate(
-        service.update(profession_id, payload.model_dump(exclude_unset=True))
+        service.update(profession_id, payload.model_dump(exclude_unset=True), staff=staff)
     )
 
 

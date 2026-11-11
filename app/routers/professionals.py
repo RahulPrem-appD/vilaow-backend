@@ -87,7 +87,9 @@ def get_professional(
     ).all()
     events = db.scalars(
         select(Event).where(Event.professional_id == professional_id)
-        .order_by(Event.created_at.desc())
+        # One save can write several (a rename, then the unpublish it caused),
+        # all stamped with the same transaction time; the id keeps their order.
+        .order_by(Event.created_at.desc(), Event.id.desc())
     ).all()
     base = ProfessionalOut.model_validate(professional)
     licence = licence_of(db, professional_id)
@@ -104,10 +106,13 @@ def update_professional(
     professional_id: int,
     payload: ProfessionalUpdate,
     service: ProfessionalServiceDep,
-    _staff: StaffDep,
+    staff: StaffDep,
 ) -> ProfessionalOut:
+    """Saves the fields. On a live profile a change to the name, the photo or
+    the profession also takes it off the site until it is published again."""
     return ProfessionalOut.model_validate(
-        service.update(professional_id, payload.model_dump(exclude_unset=True))
+        service.update(professional_id, payload.model_dump(exclude_unset=True),
+                       staff=staff)
     )
 
 

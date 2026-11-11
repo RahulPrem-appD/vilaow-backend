@@ -148,10 +148,13 @@ def test_a_used_link_cannot_upload(as_owner, client, db, professions):
 
 
 def test_the_public_profile_never_carries_it(as_owner, client, db, professions):
-    p = _pro(db, professions, slug="kostas-p", published=True, stage=Stage.signed,
-             published_at=datetime.now(timezone.utc))
+    # Attached while signing, then live: issuing a link to a profile that is
+    # already live takes it offline (live_guard), so this is the real order.
+    p = _pro(db, professions, slug="kostas-p")
     asset_id = _attach(client, _token(as_owner, p.id), "licence.pdf", PDF,
                        "application/pdf").json()["id"]
+    p.published, p.stage, p.published_at = True, Stage.signed, datetime.now(timezone.utc)
+    db.commit()
     profile = client.get("/api/public/professionals/kostas-p")
     assert profile.status_code == 200
     assert f"/api/assets/{asset_id}" not in profile.text
