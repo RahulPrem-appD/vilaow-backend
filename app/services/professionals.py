@@ -27,12 +27,6 @@ from app.repositories.publishing import profession_fields, readiness
 from app.services.photos import photo_reference
 
 
-# The main pipeline in order, so "forward" has a meaning. `declined` and
-# `not_valid` are exits rather than positions and deliberately absent: a call
-# does not move someone out of them by accident, only by an explicit stage.
-_BEFORE_DETAILS = (Stage.imported, Stage.contacted)
-
-
 @dataclass(frozen=True)
 class ProfessionalFilters:
     stage: Stage | None = None
@@ -332,21 +326,18 @@ class ProfessionalService:
     def record_call(self, professional_id: int, data: dict, *, stage: Stage | None,
                     notes: str | None, staff: Staff) -> Professional:
         """Logging a call also edits the record, so it reuses update() rather
-        than repeating the custom-field validation. `stage` is handled here
-        because a call moves someone forward by default."""
+        than repeating the custom-field validation. The stage moves only to
+        one the caller picked."""
         professional = self.update(professional_id, {k: v for k, v in data.items()
                                                      if k != "stage"})
         professional.called_by_id = staff.id
         professional.called_at = self._clock.now()
-        # Default forward, never backward. Without the ordering check, a caller
-        # ringing a professional who had already signed — to correct a phone
-        # number, say — reset them to details_collected and undid the pipeline
-        # position their signature had earned. An explicit `stage` is still
-        # honoured: moving someone back deliberately is a real action.
+        # No stage, no move. A call used to move a new or Contacted name to
+        # details_collected unless the caller picked otherwise, while the form
+        # beside the button said "Don't move them": names marked Contacted kept
+        # landing on Details collected (Asaf, 11 November).
         if stage is not None:
             professional.stage = stage
-        elif professional.stage in _BEFORE_DETAILS:
-            professional.stage = Stage.details_collected
         self._record(professional.id, staff, "called", detail=notes)
         self._db.commit()
         self._db.refresh(professional)

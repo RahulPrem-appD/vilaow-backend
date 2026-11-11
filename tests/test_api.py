@@ -298,6 +298,29 @@ def test_a_stage_change_is_recorded_against_the_person_who_made_it(as_caller, db
     assert any(e.actor_label for e in ev), "an event with no actor is not an audit trail"
 
 
+# ── logging a call ──────────────────────────────────────────────────────────
+@pytest.mark.parametrize(
+    "stage", [Stage.imported, Stage.contacted, Stage.not_valid, Stage.signed],
+)
+def test_logging_a_call_without_a_stage_leaves_the_stage_alone(as_caller, db, professions, stage):
+    """"Don't move them" sends no stage. A call used to move a new or Contacted
+    name to Details collected anyway, so Asaf's callers saw the names they had
+    marked Contacted land there (11 November)."""
+    p = _a_professional(db, professions, stage=stage)
+    r = as_caller.post(f"/api/professionals/{p.id}/call", json={"stage": None})
+    assert r.status_code == 200, r.text
+    assert r.json()["stage"] == stage.value
+    assert r.json()["called_at"], "the call itself was not stamped"
+
+
+@pytest.mark.parametrize("stage", ["contacted", "not_valid", "declined", "details_collected"])
+def test_logging_a_call_moves_them_to_the_stage_picked(as_caller, db, professions, stage):
+    p = _a_professional(db, professions)
+    r = as_caller.post(f"/api/professionals/{p.id}/call", json={"stage": stage})
+    assert r.status_code == 200, r.text
+    assert r.json()["stage"] == stage
+
+
 def test_the_signed_agreement_can_be_produced_as_a_pdf(as_owner, client, db, professions, codes):
     """The mock's "download signed copy" was window.print(), so Vilaow held
     nothing. This is the copy Vilaow keeps, rendered from the stored row."""

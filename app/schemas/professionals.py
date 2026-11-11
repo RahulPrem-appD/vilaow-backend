@@ -202,7 +202,7 @@ class AssignRequest(ORMModel):
 
 class CallRequest(ProfessionalUpdate):
     """Everything ProfessionalUpdate allows, plus the call stamp. `stage`
-    overrides the default post-call stage (details_collected) when given."""
+    moves them to it when given; without one the stage stays as it is."""
 
     stage: Stage | None = None
 
